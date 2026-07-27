@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { getCurrentAccount } from "@/lib/session";
+import { getCurrentAccountRaw } from "@/lib/session";
 import { hashPassword, verifyPassword } from "@/lib/auth-crypto";
+import { isSameOrigin } from "@/lib/csrf";
 
 export async function POST(request) {
-  const account = await getCurrentAccount();
+  if (!isSameOrigin(request)) {
+    return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
+  }
+
+  const account = await getCurrentAccountRaw();
   if (!account) {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
@@ -25,6 +30,8 @@ export async function POST(request) {
   }
 
   const db = getDb();
+  // account is already the full row from getCurrentAccountRaw(), but
+  // re-fetch to guarantee we're checking against the latest hash.
   const full = db.prepare(`SELECT * FROM accounts WHERE id = ?`).get(account.id);
 
   // Skip the current-password check only on a forced first-time reset.

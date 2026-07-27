@@ -1,10 +1,11 @@
 import "./globals.css";
-import Sidebar from "@/components/layout/Sidebar";
-import MobileNav from "@/components/layout/MobileNav";
-import Header from "@/components/layout/Header";
-import ChatWidget from "@/components/ChatWidget";
-import PageTransition from "@/components/layout/PageTransition";
 
+// Root layout only sets up the HTML shell + global styles. The authenticated
+// app chrome (Sidebar, Header, MobileNav, ChatWidget) lives in
+// app/(portal)/layout.js so unauthenticated routes -- currently just
+// /login -- never render any of it, satisfying the requirement that the
+// login screen show only the login card and nothing from the authenticated
+// shell (no sidebar, header, connection status, nav, dashboard content).
 export const metadata = {
   title: "Star Atlas Rewards Portal",
   description: "Earn passive income by sharing your unused internet bandwidth.",
@@ -14,15 +15,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className="min-h-screen bg-[#121212] font-sans text-white antialiased">
-        <Sidebar />
-        <div className="lg:pl-64">
-          <Header />
-          <main className="mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-8 lg:pb-10">
-            <PageTransition>{children}</PageTransition>
-          </main>
-        </div>
-        <MobileNav />
-        <ChatWidget />
+        {children}
       </body>
     </html>
   );
