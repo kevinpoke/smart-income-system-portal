@@ -1,30 +1,44 @@
 "use client";
 
-import { useMemo } from "react";
-import { useStore } from "@/lib/store";
-import { generatePayoutHistory, generateNodeLocation, rngFromSeed, formatCurrency } from "@/lib/mockData";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { formatCurrency, centsToDollars } from "@/lib/mockData";
 import { GlassCard, SectionTitle, FadeIn, Badge } from "@/components/ui/Primitives";
-import { MapPin, TrendingUp } from "lucide-react";
+import { MapPin, TrendingUp, Info } from "lucide-react";
 
+// Fully SQLite-backed payout estimates page. Location comes from the
+// authenticated customer's own ISP setup (isp_city/isp_state); estimate
+// rows are deterministic per account+month from /api/payouts/estimates.
+// Nothing here reads from or writes to Zustand/localStorage, and nothing
+// here touches the earnings ledger.
 export default function PayoutsPage() {
-  const user = useStore((s) => s.users[s.currentUserId]);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const seed = useMemo(
-    () => Math.floor(new Date(user?.joinDate || Date.now()).getTime() / 1000),
-    [user?.joinDate]
-  );
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/payouts/estimates", { cache: "no-store" });
+        const json = await res.json();
+        if (!cancelled) setData(json);
+      } catch {
+        if (!cancelled) setData({ rows: [], location: null });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const rows = useMemo(
-    () => (user?.joinDate ? generatePayoutHistory(seed, user.joinDate) : []),
-    [seed, user?.joinDate]
-  );
+  const rows = data?.rows || [];
+  const location = data?.location || null;
 
-  const location = useMemo(() => generateNodeLocation(rngFromSeed(seed + 7)), [seed]);
-
-  const average = useMemo(() => {
-    if (!rows.length) return 0;
-    return rows.reduce((sum, r) => sum + r.amount, 0) / rows.length;
-  }, [rows]);
+  const average = rows.length
+    ? rows.reduce((sum, r) => sum + centsToDollars(r.amountCents), 0) / rows.length
+    : 0;
 
   return (
     <div className="space-y-6">
@@ -42,58 +56,82 @@ export default function PayoutsPage() {
             </div>
             <div>
               <div className="text-sm font-semibold text-white">
-                Average Payout for {location}
+                {loading
+                  ? "Loading location…"
+                  : location
+                  ? `Average Payout for ${location}`
+                  : "Location Required"}
               </div>
               <div className="text-xs text-[#B0B0B0]">
-                Based on the last 14 months of node activity in your area.
+                {location
+                  ? "Based on the last 12 months of node activity in your area."
+                  : "Complete your ISP Setup to see payout estimates for your area."}
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 font-mono text-2xl font-bold text-[#32B5FF]">
-            <TrendingUp className="h-5 w-5" />
-            {formatCurrency(average)}
-          </div>
+          {!loading && !location && (
+            <Link
+              href="/isp-setup"
+              className="rounded-xl bg-[#32B5FF] px-4 py-2.5 text-sm font-semibold text-[#06121a] shadow-[0_0_20px_rgba(50,181,255,0.35)] hover:bg-[#4dc0ff]"
+            >
+              Complete ISP Setup
+            </Link>
+          )}
+          {location && (
+            <div className="flex items-center gap-2 font-mono text-2xl font-bold text-[#32B5FF]">
+              <TrendingUp className="h-5 w-5" />
+              {formatCurrency(average)}
+            </div>
+          )}
         </GlassCard>
       </FadeIn>
 
-      <FadeIn delay={0.05}>
-        <GlassCard className="overflow-hidden">
-          <div className="border-b border-white/10 px-5 py-4">
-            <h3 className="text-sm font-semibold text-white">
-              Previous Payouts in Your Area
-            </h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
-                  <th className="px-5 py-3">Month</th>
-                  <th className="px-5 py-3">Location</th>
-                  <th className="px-5 py-3 text-right">Amount</th>
-                  <th className="px-5 py-3 text-right">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="border-b border-white/5 text-[#B0B0B0] transition hover:bg-white/[0.03]"
-                  >
-                    <td className="px-5 py-3 text-white">{row.month}</td>
-                    <td className="px-5 py-3">{location}</td>
-                    <td className="px-5 py-3 text-right font-mono text-white">
-                      {formatCurrency(row.amount)}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <Badge tone="success">Paid</Badge>
-                    </td>
+      {location && (
+        <FadeIn delay={0.05}>
+          <GlassCard className="overflow-hidden">
+            <div className="border-b border-white/10 px-5 py-4">
+              <h3 className="text-sm font-semibold text-white">
+                Previous Payouts in Your Area
+              </h3>
+              <p className="mt-1 flex items-start gap-1.5 text-xs text-[#B0B0B0]">
+                <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[#32B5FF]" />
+                These amounts are estimates based on the projected earnings
+                of each Node in your area. Actual payouts are issued every
+                four months.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
+                    <th className="px-5 py-3">Month</th>
+                    <th className="px-5 py-3">Location</th>
+                    <th className="px-5 py-3 text-right">Average Earnings</th>
+                    <th className="px-5 py-3 text-right">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </GlassCard>
-      </FadeIn>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="border-b border-white/5 text-[#B0B0B0] transition hover:bg-white/[0.03]"
+                    >
+                      <td className="px-5 py-3 text-white">{row.monthLabel}</td>
+                      <td className="px-5 py-3">{location}</td>
+                      <td className="px-5 py-3 text-right font-mono text-white">
+                        {formatCurrency(centsToDollars(row.amountCents))}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <Badge tone="success">Paid</Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </GlassCard>
+        </FadeIn>
+      )}
     </div>
   );
 }
