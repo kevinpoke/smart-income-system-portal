@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -10,27 +10,17 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
-import { motion } from "framer-motion";
-import { useStore } from "@/lib/store";
+import { useEarningsSummary } from "@/lib/useEarningsSummary";
 import { useLiveClock } from "@/lib/useLiveClock";
 import {
-  GRAPH_RANGES,
-  generateEarningsSeries,
   formatCurrency,
+  centsToDollars,
   formatLongDuration,
 } from "@/lib/mockData";
-import {
-  totalEarnings,
-  todayEarnings,
-  weekEarnings,
-  monthEarnings,
-  isEarningActive,
-  msUntilNextPayout,
-} from "@/lib/earnings";
 import { GlassCard, SectionTitle, FadeIn, Badge } from "@/components/ui/Primitives";
 import AnimatedNumber from "@/components/ui/AnimatedNumber";
 import Link from "next/link";
-import { TrendingUp, Clock, Wallet, Sparkles } from "lucide-react";
+import { TrendingUp, Clock, Wallet, Sparkles, Info } from "lucide-react";
 
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
@@ -55,7 +45,7 @@ function InactiveState() {
           </h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-[#B0B0B0]">
             Complete your ISP Setup and get your participation approved to
-            start the live earnings ticker and uptime clock.
+            start earning.
           </p>
         </div>
         <Link
@@ -69,23 +59,67 @@ function InactiveState() {
   );
 }
 
+// Live Earnings interpolates smoothly BETWEEN server polls: we know the
+// server-confirmed total as of `todayStartAt` (which is always $0 baseline
+// for "today's" contribution, since today's ledger row is intentionally
+// never written until it's no longer "today" -- see
+// lib/earningsEngine.js) plus lifetime prior-days total. Between polls we
+// linearly project today's expected amount by elapsed fraction of the day,
+// which is exactly the same "expected daily estimate" the dashboard labels
+// as such -- it never invents money that isn't backed by either a written
+// ledger row (prior days) or the clearly-labeled today's-estimate rule.
+function useLiveEarningsCents(summary, now) {
+  return useMemo(() => {
+    if (!summary?.active) return 0;
+    const priorDaysCents = summary.lifetimeEarningsCents || 0;
+    const todayStart = new Date(summary.todayStartAt).getTime();
+    // Never project earnings before the Node's actual connection moment,
+    // even on the very first (partial) day of activation.
+    const connectedAt = summary.nodeConnectedAt ? new Date(summary.nodeConnectedAt).getTime() : todayStart;
+    const accrualStart = Math.max(todayStart, connectedAt);
+    const elapsedMs = Math.max(0, now - accrualStart);
+    const fractionOfDay = Math.min(1, elapsedMs / 86400000);
+    const todayProjectedCents = (summary.todaysExpectedCents || 0) * fractionOfDay;
+    return priorDaysCents + todayProjectedCents;
+  }, [summary, now]);
+}
+
 export default function DashboardPage() {
-  const user = useStore((s) => s.users[s.currentUserId]);
+  const { summary, loading } = useEarningsSummary(15000);
   const now = useLiveClock(100);
-  const [range, setRange] = useState("7d");
 
-  const active = isEarningActive(user);
-  const live = totalEarnings(user, now);
-  const today = todayEarnings(user, now);
-  const week = weekEarnings(user, now);
-  const month = monthEarnings(user, now);
+  const liveCents = useLiveEarningsCents(summary, now);
+  const live = centsToDollars(liveCents);
+  const todaysExpected = centsToDollars(summary?.todaysExpectedCents);
+  const averageDaily = centsToDollars(summary?.averageDailyCents);
+  const week = centsToDollars(summary?.weekEarningsCents);
+  const month = centsToDollars(summary?.monthEarningsCents);
+  const lifetime = centsToDollars(summary?.lifetimeEarningsCents);
+  const balance = centsToDollars(summary?.currentBalanceCents);
 
-  const series = useMemo(() => {
-    if (!active) return [];
-    return generateEarningsSeries(range, user.dailyRate, user.joinDate, live);
-  }, [range, active, user?.dailyRate, user?.joinDate, Math.floor(live)]);
+  const payoutMs = useMemo(() => {
+    if (!summary?.payoutTargetAt) return null;
+    return Math.max(0, new Date(summary.payoutTargetAt).getTime() - now);
+  }, [summary?.payoutTargetAt, now]);
 
-  const payoutMs = msUntilNextPayout(user, now);
+  const series = useMemo(
+    () =>
+      (summary?.series || []).map((p) => ({
+        label: p.label,
+        value: p.value,
+      })),
+    [summary?.series]
+  );
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <SectionTitle eyebrow="Overview" title="Dashboard" />
+      </div>
+    );
+  }
+
+  const active = Boolean(summary?.active);
 
   return (
     <div className="space-y-6">
@@ -99,51 +133,58 @@ export default function DashboardPage() {
         <InactiveState />
       ) : (
         <>
-          {/* Live Earnings Ticker */}
-          <FadeIn>
-            <GlassCard className="relative overflow-hidden px-6 py-8 sm:px-10 sm:py-10">
-              <div
-                className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full opacity-20 blur-3xl"
-                style={{ background: "#32B5FF" }}
-              />
-              <div className="relative flex flex-col gap-2">
+          {/* Live Earnings + Average Daily Earnings */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
+            <FadeIn>
+              <GlassCard className="relative overflow-hidden px-6 py-8 sm:px-10 sm:py-10">
+                <div
+                  className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full opacity-20 blur-3xl"
+                  style={{ background: "#32B5FF" }}
+                />
+                <div className="relative flex flex-col gap-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#B0B0B0]">
+                    <TrendingUp className="h-4 w-4 text-[#32B5FF]" />
+                    Live Earnings
+                  </div>
+                  <AnimatedNumber
+                    value={live}
+                    format="currency5"
+                    className="font-mono text-4xl font-extrabold tracking-tight text-[#32B5FF] [text-shadow:0_0_18px_rgba(50,181,255,0.65),0_0_40px_rgba(50,181,255,0.35)] sm:text-5xl"
+                  />
+                  <div className="flex items-center gap-1.5 text-xs text-[#B0B0B0]">
+                    <Info className="h-3 w-3" />
+                    Today&apos;s expected earnings ~{formatCurrency(todaysExpected)}
+                    <span className="text-[#707070]">(demo estimate)</span>
+                  </div>
+                </div>
+              </GlassCard>
+            </FadeIn>
+
+            <FadeIn delay={0.03}>
+              <GlassCard className="flex h-full flex-col justify-center gap-2 px-6 py-8">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#B0B0B0]">
                   <TrendingUp className="h-4 w-4 text-[#32B5FF]" />
-                  Live Earnings
+                  Average Daily Earnings
                 </div>
                 <AnimatedNumber
-                  value={live}
-                  className="font-mono text-5xl font-extrabold tracking-tight text-white sm:text-6xl"
+                  value={averageDaily}
+                  className="font-mono text-3xl font-bold text-white"
                 />
-                <div className="text-sm text-[#B0B0B0]">
-                  Earning at ~{formatCurrency(user.dailyRate)}/day
+                <div className="text-xs text-[#707070]">
+                  Ledger-based average across {summary?.completedDays ?? 0} completed day
+                  {summary?.completedDays === 1 ? "" : "s"} (demo estimate).
                 </div>
-              </div>
-            </GlassCard>
-          </FadeIn>
+              </GlassCard>
+            </FadeIn>
+          </div>
 
           {/* Graph */}
           <FadeIn delay={0.05}>
             <GlassCard className="p-4 sm:p-6">
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <h3 className="text-sm font-semibold text-white">
-                  Earnings Overview
+                  Earnings Overview (Last 14 Days — Ledger)
                 </h3>
-                <div className="flex flex-wrap gap-1.5">
-                  {GRAPH_RANGES.map((r) => (
-                    <button
-                      key={r.key}
-                      onClick={() => setRange(r.key)}
-                      className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
-                        range === r.key
-                          ? "bg-[#32B5FF] text-[#06121a]"
-                          : "bg-white/5 text-[#B0B0B0] hover:bg-white/10 hover:text-white"
-                      }`}
-                    >
-                      {r.label}
-                    </button>
-                  ))}
-                </div>
               </div>
               <div className="h-72 w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -190,10 +231,10 @@ export default function DashboardPage() {
           {/* Summary Cards */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { label: "Today's Earnings", value: today, delay: 0.1 },
-              { label: "This Week (7d)", value: week, delay: 0.15 },
-              { label: "This Month (30d)", value: month, delay: 0.2 },
-              { label: "All-Time Total", value: live, delay: 0.25 },
+              { label: "This Week (7d)", value: week, delay: 0.1 },
+              { label: "This Month (30d)", value: month, delay: 0.15 },
+              { label: "Total Earnings (Lifetime)", value: lifetime, delay: 0.2 },
+              { label: "Current Balance", value: balance, delay: 0.25 },
             ].map((card) => (
               <FadeIn key={card.label} delay={card.delay}>
                 <GlassCard className="p-5">
@@ -219,16 +260,23 @@ export default function DashboardPage() {
                 <div>
                   <div className="text-sm font-semibold text-white">Next Payout</div>
                   <div className="text-xs text-[#B0B0B0]">
-                    Payouts run on a 4.1 month cycle from your approval date.
+                    Payouts run on a 4 month cycle from your Node connection
+                    date.
                   </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Wallet className="h-4 w-4 text-[#32B5FF]" />
-                <span className="font-mono text-lg font-bold text-white">
-                  {payoutMs != null ? formatLongDuration(payoutMs) : "--"}
-                </span>
-                <Badge tone="accent">remaining</Badge>
+                {summary?.payoutAvailable ? (
+                  <Badge tone="success">Payout Available</Badge>
+                ) : (
+                  <>
+                    <Wallet className="h-4 w-4 text-[#32B5FF]" />
+                    <span className="font-mono text-lg font-bold text-white">
+                      {payoutMs != null ? formatLongDuration(payoutMs) : "--"}
+                    </span>
+                    <Badge tone="accent">remaining</Badge>
+                  </>
+                )}
               </div>
             </GlassCard>
           </FadeIn>

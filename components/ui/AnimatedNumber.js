@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { motion, useSpring, useTransform } from "framer-motion";
-import { formatCurrency } from "@/lib/mockData";
+import { useEffect, useState } from "react";
+import { motion, useSpring } from "framer-motion";
+import { formatCurrency, formatCurrency5 } from "@/lib/mockData";
 
 /**
  * Smoothly tweens toward `value` (a number) instead of snapping, giving the
  * "ticking" number animation the spec calls for. Renders as currency by
- * default; pass format="raw" for a plain number.
+ * default; pass format="currency5" for the 5-decimal Live Earnings ticker,
+ * or format="raw" for a plain number.
  */
 export default function AnimatedNumber({
   value,
@@ -27,10 +28,14 @@ export default function AnimatedNumber({
     return unsub;
   }, [spring]);
 
-  const text =
-    format === "currency"
-      ? formatCurrency(display)
-      : display.toFixed(decimals);
+  let text;
+  if (format === "currency") {
+    text = formatCurrency(display);
+  } else if (format === "currency5") {
+    text = formatCurrency5(display);
+  } else {
+    text = display.toFixed(decimals);
+  }
 
   return <motion.span className={className}>{text}</motion.span>;
 }
