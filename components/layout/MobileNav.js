@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import clsx from "clsx";
 import {
   LayoutDashboard,
@@ -11,6 +12,7 @@ import {
   Server,
   Banknote,
   LifeBuoy,
+  LogOut,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -25,6 +27,28 @@ const NAV_ITEMS = [
 
 export default function MobileNav() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  // Same logout behavior as the desktop Sidebar: POST to the real logout
+  // endpoint (server session is the source of truth), guard against
+  // double-taps, then redirect. This nav has no Admin Portal link (it
+  // never did -- admin management is desktop-only in this app), so there
+  // is no role-visibility change needed here beyond adding Logout.
+  async function handleLogout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // fall through to redirect regardless -- proxy.js rejects any stale
+      // cookie on the next request either way.
+    } finally {
+      router.replace("/login");
+      router.refresh();
+    }
+  }
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-white/10 bg-[#161616]/95 px-1 py-2 backdrop-blur-xl lg:hidden">
       {NAV_ITEMS.map((item) => {
@@ -44,6 +68,19 @@ export default function MobileNav() {
           </Link>
         );
       })}
+      <button
+        type="button"
+        onClick={handleLogout}
+        disabled={loggingOut}
+        aria-busy={loggingOut}
+        className={clsx(
+          "flex flex-col items-center gap-0.5 rounded-lg px-2 py-1 text-[10px] font-medium",
+          loggingOut ? "cursor-not-allowed text-[#707070]/60" : "text-[#707070]"
+        )}
+      >
+        <LogOut className="h-5 w-5" />
+        {loggingOut ? "…" : "Logout"}
+      </button>
     </nav>
   );
 }

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useAccount } from "@/lib/useAccount";
 import { useLiveClock } from "@/lib/useLiveClock";
+import { useHasMounted } from "@/lib/useHasMounted";
 import { ISP_PROVIDERS, US_STATES, formatCountdown } from "@/lib/mockData";
 import {
   GlassCard,
@@ -37,6 +38,7 @@ const inputClass =
 export default function IspSetupPage() {
   const { account: user, loading, refetch } = useAccount();
   const now = useLiveClock(1000);
+  const hasMounted = useHasMounted();
 
   const [form, setForm] = useState({
     provider: "",
@@ -100,11 +102,21 @@ export default function IspSetupPage() {
   // Timer begins exactly 3 days after isp_submitted_at (server timestamp).
   // Reaching zero never auto-approves -- it only affects the copy shown
   // while isp_status stays "pending_review" until an admin acts.
-  const reviewTimeRemaining = useMemo(() => {
-    if (!user?.ispSubmittedAt) return null;
+  //
+  // deadline - now depends on Date.now(), which differs between the server
+  // render and the first client render. Gate behind hasMounted so both
+  // agree (reviewTimeRemaining === null, the "Estimated time remaining"
+  // badge omitted) until the real countdown appears right after mount and
+  // ticks every second.
+  //
+  // Computed inline (not useMemo) -- the React Compiler auto-memoizes this
+  // and its own dependency inference disagreed with an explicit dep array
+  // that includes hasMounted/now.
+  let reviewTimeRemaining = null;
+  if (hasMounted && user?.ispSubmittedAt) {
     const deadline = new Date(user.ispSubmittedAt).getTime() + THREE_DAYS_MS;
-    return Math.max(0, deadline - now);
-  }, [user?.ispSubmittedAt, now]);
+    reviewTimeRemaining = Math.max(0, deadline - now);
+  }
 
   if (loading) {
     return (

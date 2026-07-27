@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
 import { useAccount } from "@/lib/useAccount";
 import { useLiveClock } from "@/lib/useLiveClock";
+import { useHasMounted } from "@/lib/useHasMounted";
 import { PulsingDot } from "@/components/ui/Primitives";
 import { formatCompactDuration } from "@/lib/mockData";
 
@@ -16,14 +16,26 @@ import { formatCompactDuration } from "@/lib/mockData";
 export default function Header() {
   const { account: user } = useAccount();
   const now = useLiveClock(1000);
+  const hasMounted = useHasMounted();
 
   const connected = user?.ispStatus === "active";
 
-  const uptimeLabel = useMemo(() => {
-    if (!connected || !user?.nodeConnectedAt) return null;
+  // Uptime is derived from Date.now() (via useLiveClock), which necessarily
+  // differs between the server render and the first client render -- the
+  // server has no way to know "now" at the moment the browser paints. Gate
+  // the live value behind hasMounted so both the server-rendered HTML and
+  // React's first client render agree (uptimeLabel === null, nothing
+  // rendered); the real duration then appears immediately after mount and
+  // ticks every second from useLiveClock's 1s interval.
+  //
+  // Computed inline (not useMemo) -- the React Compiler auto-memoizes this
+  // and its own dependency inference disagreed with an explicit dep array
+  // here (it doesn't count `hasMounted`/`now` the way a manual array does).
+  let uptimeLabel = null;
+  if (hasMounted && connected && user?.nodeConnectedAt) {
     const elapsed = now - new Date(user.nodeConnectedAt).getTime();
-    return formatCompactDuration(elapsed);
-  }, [connected, user?.nodeConnectedAt, now]);
+    uptimeLabel = formatCompactDuration(elapsed);
+  }
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/10 bg-[#121212]/80 px-4 py-4 backdrop-blur-xl sm:px-8">

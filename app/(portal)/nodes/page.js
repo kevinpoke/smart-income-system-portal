@@ -4,19 +4,29 @@ import { useEffect, useMemo, useState } from "react";
 import { formatCurrency, centsToDollars, formatCountdown } from "@/lib/mockData";
 import { useWaitlistStatus } from "@/lib/useWaitlistStatus";
 import { useLiveClock } from "@/lib/useLiveClock";
+import { useHasMounted } from "@/lib/useHasMounted";
 import { GlassCard, SectionTitle, FadeIn, Badge } from "@/components/ui/Primitives";
 import { Server, Zap, Wifi, Clock3, CheckCircle2 } from "lucide-react";
 
 function WaitlistButton() {
   const { status, refetch } = useWaitlistStatus(5000);
   const now = useLiveClock(1000);
+  const hasMounted = useHasMounted();
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState("");
 
-  const remainingMs = useMemo(() => {
-    if (!status?.deadlineAt) return null;
-    return Math.max(0, new Date(status.deadlineAt).getTime() - now);
-  }, [status?.deadlineAt, now]);
+  // deadlineAt - now depends on Date.now(), which differs between the
+  // server render and the first client render. Gate behind hasMounted so
+  // both agree (remainingMs === null, "Closes in ..." omitted) until the
+  // real countdown appears right after mount and ticks every second.
+  //
+  // Computed inline (not useMemo) -- the React Compiler auto-memoizes this
+  // and its own dependency inference disagreed with an explicit dep array
+  // that includes hasMounted/now.
+  let remainingMs = null;
+  if (hasMounted && status?.deadlineAt) {
+    remainingMs = Math.max(0, new Date(status.deadlineAt).getTime() - now);
+  }
 
   async function handleJoin() {
     setError("");

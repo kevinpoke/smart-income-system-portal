@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { useEarningsSummary } from "@/lib/useEarningsSummary";
 import { useLiveClock } from "@/lib/useLiveClock";
+import { useHasMounted } from "@/lib/useHasMounted";
 import {
   formatCurrency,
   centsToDollars,
@@ -68,10 +69,17 @@ function InactiveState() {
 // which is exactly the same "expected daily estimate" the dashboard labels
 // as such -- it never invents money that isn't backed by either a written
 // ledger row (prior days) or the clearly-labeled today's-estimate rule.
-function useLiveEarningsCents(summary, now) {
+//
+// `hasMounted` gates the Date.now()-driven projection: before mount (i.e.
+// during SSR and the first client render) this returns the static,
+// summary-only total (no live interpolation), so the server-rendered HTML
+// and the first client render always agree. Once mounted, the live
+// per-second ticking projection kicks in.
+function useLiveEarningsCents(summary, now, hasMounted) {
   return useMemo(() => {
     if (!summary?.active) return 0;
     const priorDaysCents = summary.lifetimeEarningsCents || 0;
+    if (!hasMounted) return priorDaysCents;
     const todayStart = new Date(summary.todayStartAt).getTime();
     // Never project earnings before the Node's actual connection moment,
     // even on the very first (partial) day of activation.
@@ -81,14 +89,15 @@ function useLiveEarningsCents(summary, now) {
     const fractionOfDay = Math.min(1, elapsedMs / 86400000);
     const todayProjectedCents = (summary.todaysExpectedCents || 0) * fractionOfDay;
     return priorDaysCents + todayProjectedCents;
-  }, [summary, now]);
+  }, [summary, now, hasMounted]);
 }
 
 export default function DashboardPage() {
   const { summary, loading } = useEarningsSummary(15000);
   const now = useLiveClock(100);
+  const hasMounted = useHasMounted();
 
-  const liveCents = useLiveEarningsCents(summary, now);
+  const liveCents = useLiveEarningsCents(summary, now, hasMounted);
   const live = centsToDollars(liveCents);
   const todaysExpected = centsToDollars(summary?.todaysExpectedCents);
   const averageDaily = centsToDollars(summary?.averageDailyCents);
@@ -97,10 +106,18 @@ export default function DashboardPage() {
   const lifetime = centsToDollars(summary?.lifetimeEarningsCents);
   const balance = centsToDollars(summary?.currentBalanceCents);
 
-  const payoutMs = useMemo(() => {
-    if (!summary?.payoutTargetAt) return null;
-    return Math.max(0, new Date(summary.payoutTargetAt).getTime() - now);
-  }, [summary?.payoutTargetAt, now]);
+  // payoutMs depends on Date.now() (`now`) -- gate it behind hasMounted so
+  // the server render and first client render both fall into the existing
+  // `payoutMs == null` branch (which already renders "--"), and the real
+  // countdown appears immediately after mount and ticks normally.
+  //
+  // Computed inline (not useMemo) -- the React Compiler auto-memoizes this
+  // and its own dependency inference disagreed with an explicit dep array
+  // that includes hasMounted/now.
+  let payoutMs = null;
+  if (hasMounted && summary?.payoutTargetAt) {
+    payoutMs = Math.max(0, new Date(summary.payoutTargetAt).getTime() - now);
+  }
 
   const series = useMemo(
     () =>
