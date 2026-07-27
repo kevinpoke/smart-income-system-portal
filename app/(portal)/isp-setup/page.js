@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useStore } from "@/lib/store";
+import { useAccount } from "@/lib/useAccount";
 import { useLiveClock } from "@/lib/useLiveClock";
-import { ISP_PROVIDERS, US_STATES, formatCompactDuration } from "@/lib/mockData";
+import { ISP_PROVIDERS, US_STATES, formatCountdown } from "@/lib/mockData";
 import {
   GlassCard,
   SectionTitle,
@@ -11,8 +11,9 @@ import {
   FadeIn,
   Badge,
 } from "@/components/ui/Primitives";
-import { motion } from "framer-motion";
 import { CheckCircle2, Clock3, Wifi, ShieldCheck } from "lucide-react";
+
+const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
 
 function Field({ label, children }) {
   return (
@@ -28,11 +29,13 @@ function Field({ label, children }) {
 const inputClass =
   "w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder-[#707070] outline-none transition focus:border-[#32B5FF]/60 focus:ring-1 focus:ring-[#32B5FF]/60";
 
+// Fully SQLite-backed ISP setup workflow. isp_status drives which of the
+// four states renders: not_started -> pending_review ->
+// approved_awaiting_user -> active. All timestamps (isp_submitted_at,
+// isp_approved_at, user_authorized_at, node_connected_at) come from the
+// server via /api/auth/me and are never derived from localStorage/Zustand.
 export default function IspSetupPage() {
-  const user = useStore((s) => s.users[s.currentUserId]);
-  const submitIspApplication = useStore((s) => s.submitIspApplication);
-  const approveParticipation = useStore((s) => s.approveParticipation);
-  const manualSendApproveButton = useStore((s) => s.manualSendApproveButton);
+  const { account: user, loading, refetch } = useAccount();
   const now = useLiveClock(1000);
 
   const [form, setForm] = useState({
@@ -44,39 +47,85 @@ export default function IspSetupPage() {
     ssid: "",
     password: "",
   });
+  const [submitError, setSubmitError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [authorizing, setAuthorizing] = useState(false);
+  const [authorizeError, setAuthorizeError] = useState("");
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
-    submitIspApplication(form);
+    setSubmitError("");
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/isp/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSubmitError(data.error || "Submission failed.");
+        return;
+      }
+      await refetch();
+    } catch {
+      setSubmitError("Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
-  const showApproveButton = useMemo(() => {
-    if (!user?.approveButtonAvailableAt) return false;
-    return now >= new Date(user.approveButtonAvailableAt).getTime();
-  }, [user?.approveButtonAvailableAt, now]);
+  async function handleAuthorize() {
+    setAuthorizeError("");
+    setAuthorizing(true);
+    try {
+      const res = await fetch("/api/isp/authorize", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthorizeError(data.error || "Authorization failed.");
+        return;
+      }
+      await refetch();
+    } catch {
+      setAuthorizeError("Something went wrong. Please try again.");
+    } finally {
+      setAuthorizing(false);
+    }
+  }
 
-  const timeRemaining = useMemo(() => {
-    if (!user?.approveButtonAvailableAt) return null;
-    return Math.max(0, new Date(user.approveButtonAvailableAt).getTime() - now);
-  }, [user?.approveButtonAvailableAt, now]);
+  // Timer begins exactly 3 days after isp_submitted_at (server timestamp).
+  // Reaching zero never auto-approves -- it only affects the copy shown
+  // while isp_status stays "pending_review" until an admin acts.
+  const reviewTimeRemaining = useMemo(() => {
+    if (!user?.ispSubmittedAt) return null;
+    const deadline = new Date(user.ispSubmittedAt).getTime() + THREE_DAYS_MS;
+    return Math.max(0, deadline - now);
+  }, [user?.ispSubmittedAt, now]);
 
-  if (user?.status === "active") {
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <SectionTitle eyebrow="ISP Setup" title="Loading…" />
+      </div>
+    );
+  }
+
+  if (user?.ispStatus === "active") {
     return (
       <div className="space-y-6">
         <SectionTitle eyebrow="ISP Setup" title="Setup Complete" />
         <FadeIn>
           <GlassCard className="flex flex-col items-center gap-3 px-6 py-16 text-center">
             <CheckCircle2 className="h-12 w-12 text-green-400" />
-            <h2 className="text-xl font-bold text-white">
-              Your Node is Active
-            </h2>
+            <h2 className="text-xl font-bold text-white">Your Node is Active</h2>
             <p className="max-w-md text-sm text-[#B0B0B0]">
-              Your participation was approved and your uptime + earnings are
-              live. Head to the Dashboard to watch it grow.
+              Your WiFi has been successfully connected to the StarAtlas
+              Network. Visit your Dashboard to monitor your earnings and
+              connection status.
             </p>
           </GlassCard>
         </FadeIn>
@@ -84,57 +133,73 @@ export default function IspSetupPage() {
     );
   }
 
-  if (user?.status === "isp_pending") {
+  if (user?.ispStatus === "approved_awaiting_user") {
     return (
       <div className="space-y-6">
-        <SectionTitle eyebrow="ISP Setup" title="Application Status" />
+        <SectionTitle eyebrow="ISP Setup" title="Authorization Required" />
         <FadeIn>
           <GlassCard className="flex flex-col items-center gap-4 px-6 py-14 text-center">
-            {showApproveButton ? (
-              <>
-                <ShieldCheck className="h-12 w-12 text-[#32B5FF]" />
-                <div>
-                  <h2 className="text-xl font-bold text-white">
-                    You&apos;re Verified!
-                  </h2>
-                  <p className="mx-auto mt-2 max-w-md text-sm text-[#B0B0B0]">
-                    Your ISP setup has been reviewed. Approve your
-                    participation below to start your uptime timer and live
-                    earnings.
-                  </p>
-                </div>
-                <AccentButton onClick={() => approveParticipation(user.id)}>
-                  Approve Participation
-                </AccentButton>
-              </>
-            ) : (
-              <>
-                <Clock3 className="h-12 w-12 animate-pulse text-[#32B5FF]" />
-                <div>
-                  <h2 className="text-xl font-bold text-white">
-                    Your application is in-review
-                  </h2>
-                  <p className="mx-auto mt-2 max-w-md text-sm text-[#B0B0B0]">
-                    Please wait 1-3 days for verification. We will email you.
-                  </p>
-                </div>
-                {timeRemaining != null && (
-                  <Badge tone="accent">
-                    Est. remaining: {formatCompactDuration(timeRemaining)}
-                  </Badge>
-                )}
-                <p className="text-xs text-[#707070]">
-                  If it&apos;s taking too long, contact Support and we can
-                  expedite your approval.
-                </p>
-              </>
+            <ShieldCheck className="h-12 w-12 text-[#32B5FF]" />
+            <div>
+              <h2 className="text-xl font-bold text-white">
+                Do you authorize us to connect your WiFi to the StarAtlas
+                Network?
+              </h2>
+            </div>
+            {authorizeError && (
+              <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                {authorizeError}
+              </div>
             )}
+            <button
+              onClick={handleAuthorize}
+              disabled={authorizing}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-500 px-6 py-3 text-sm font-bold text-[#06121a] shadow-[0_0_20px_rgba(34,197,94,0.4)] transition hover:bg-green-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-300 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {authorizing ? "Authorizing…" : "I Approve"}
+            </button>
           </GlassCard>
         </FadeIn>
       </div>
     );
   }
 
+  if (user?.ispStatus === "pending_review") {
+    return (
+      <div className="space-y-6">
+        <SectionTitle eyebrow="ISP Setup" title="Application Status" />
+        <FadeIn>
+          <GlassCard className="flex flex-col items-center gap-4 px-6 py-14 text-center">
+            <Clock3 className="h-12 w-12 animate-pulse text-[#32B5FF]" />
+            <div>
+              <h2 className="text-xl font-bold text-white">
+                We&rsquo;re currently connecting your WiFi to the StarAtlas
+                Network.
+              </h2>
+              <p className="mx-auto mt-2 max-w-md text-sm text-[#B0B0B0]">
+                Once your connection has been successfully configured,
+                you&rsquo;ll receive a confirmation email. Because each setup
+                is completed manually, please allow 1&ndash;3 business days
+                for us to allocate and activate your Node.
+              </p>
+            </div>
+            {reviewTimeRemaining != null && (
+              <Badge tone="accent" className="font-mono">
+                Estimated time remaining: {formatCountdown(reviewTimeRemaining)}
+              </Badge>
+            )}
+            <p className="text-xs text-[#707070]">
+              If you have not received a confirmation email within 3 days,
+              please contact Support so we can review and expedite your
+              setup.
+            </p>
+          </GlassCard>
+        </FadeIn>
+      </div>
+    );
+  }
+
+  // isp_status === "not_started"
   return (
     <div className="space-y-6">
       <SectionTitle
@@ -251,8 +316,14 @@ export default function IspSetupPage() {
               </div>
             </div>
 
-            <AccentButton type="submit" className="w-full">
-              Submit Application
+            {submitError && (
+              <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                {submitError}
+              </div>
+            )}
+
+            <AccentButton type="submit" disabled={submitting} className="w-full">
+              {submitting ? "Submitting…" : "Complete ISP Setup"}
             </AccentButton>
           </form>
         </GlassCard>

@@ -5,9 +5,9 @@ import { useStore } from "@/lib/store";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
 import { totalEarnings } from "@/lib/earnings";
-import { MODULES_META, formatCurrency, formatCompactDuration } from "@/lib/mockData";
+import { MODULES_META, formatCurrency, formatCompactDuration, formatCountdown } from "@/lib/mockData";
 import { GlassCard, Badge, AccentButton, GhostButton } from "@/components/ui/Primitives";
-import { CheckCircle2, XCircle, Mail, Send, Zap, RefreshCw } from "lucide-react";
+import { CheckCircle2, XCircle, Mail, Send, Zap, RefreshCw, ShieldCheck } from "lucide-react";
 
 const TEST_PAYLOAD = {
   email: "test@example.com",
@@ -15,12 +15,125 @@ const TEST_PAYLOAD = {
   password: "Password123",
 };
 
+const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+
+const ISP_STATUS_LABELS = {
+  not_started: { label: "Not Started", tone: "default" },
+  pending_review: { label: "Pending Review", tone: "warning" },
+  approved_awaiting_user: { label: "Approved — Awaiting User", tone: "accent" },
+  active: { label: "Active", tone: "success" },
+};
+
+// Real, SQLite-backed ISP approval panel (Phase 2). This operates on the
+// exact same /api/admin/accounts data as the "Real Accounts" table below
+// and the /api/admin/isp/[id]/approve route -- there is no Zustand/
+// localStorage involved anywhere in this component. The full admin
+// customer-management UI (search, create account, balance/multiplier
+// edits, etc.) is Phase 5 scope and is intentionally not built yet.
+function IspApprovalPanel({ accounts, now, onApproved }) {
+  const [approvingId, setApprovingId] = useState(null);
+  const [error, setError] = useState("");
+
+  const pending = useMemo(
+    () => accounts.filter((a) => a.ispStatus === "pending_review"),
+    [accounts]
+  );
+
+  async function handleApprove(id) {
+    setError("");
+    setApprovingId(id);
+    try {
+      const res = await fetch(`/api/admin/isp/${id}/approve`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Approval failed.");
+        return;
+      }
+      await onApproved();
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setApprovingId(null);
+    }
+  }
+
+  return (
+    <GlassCard className="overflow-hidden">
+      <div className="border-b border-white/10 px-5 py-4">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+          <ShieldCheck className="h-4 w-4 text-[#32B5FF]" /> Pending ISP Approvals
+        </h3>
+        <p className="text-xs text-[#B0B0B0]">
+          Approving here only moves the account to &ldquo;approved, awaiting
+          user&rdquo; -- earnings/connection only begin once the customer
+          clicks &ldquo;I Approve&rdquo; on their own ISP Setup page.
+        </p>
+      </div>
+      {error && (
+        <div className="border-b border-white/10 px-5 py-3">
+          <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+            {error}
+          </div>
+        </div>
+      )}
+      {pending.length === 0 ? (
+        <div className="px-5 py-4 text-xs text-[#707070]">
+          No accounts currently pending ISP review.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[700px] text-sm">
+            <thead>
+              <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
+                <th className="px-4 py-3">Email</th>
+                <th className="px-4 py-3">Submitted</th>
+                <th className="px-4 py-3">Review Countdown</th>
+                <th className="px-4 py-3">Approve</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pending.map((a) => {
+                const deadline = a.ispSubmittedAt
+                  ? new Date(a.ispSubmittedAt).getTime() + THREE_DAYS_MS
+                  : null;
+                const remaining = deadline != null ? Math.max(0, deadline - now) : null;
+                return (
+                  <tr key={a.id} className="border-b border-white/5 text-[#B0B0B0]">
+                    <td className="px-4 py-3 font-mono text-xs text-white">{a.email}</td>
+                    <td className="px-4 py-3 text-xs">
+                      {a.ispSubmittedAt ? new Date(a.ispSubmittedAt).toLocaleString() : "—"}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {remaining != null ? formatCountdown(remaining) : "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => handleApprove(a.id)}
+                        disabled={approvingId === a.id}
+                        className="flex items-center gap-1 rounded-lg bg-green-500/15 px-2 py-1.5 text-xs font-semibold text-green-400 hover:bg-green-500/25 disabled:opacity-50"
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        {approvingId === a.id ? "Approving…" : "Approve"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </GlassCard>
+  );
+}
+
 function SimulatePurchaseCard() {
   const [status, setStatus] = useState("idle"); // idle | loading | success | error
   const [result, setResult] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [recentEmails, setRecentEmails] = useState([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const now = useLiveClock(1000);
 
   async function loadAccounts() {
     setLoadingAccounts(true);
@@ -65,7 +178,9 @@ function SimulatePurchaseCard() {
   }
 
   return (
-    <GlassCard className="overflow-hidden">
+    <>
+      <IspApprovalPanel accounts={accounts} now={now} onApproved={loadAccounts} />
+      <GlassCard className="overflow-hidden">
       <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-sm font-semibold text-white">
@@ -117,30 +232,37 @@ function SimulatePurchaseCard() {
           <p className="text-xs text-[#707070]">No accounts created yet.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px] text-sm">
+            <table className="w-full min-w-[700px] text-sm">
               <thead>
                 <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
                   <th className="px-2 py-2">Email</th>
                   <th className="px-2 py-2">Name</th>
                   <th className="px-2 py-2">Status</th>
+                  <th className="px-2 py-2">ISP Status</th>
                   <th className="px-2 py-2">Created</th>
                 </tr>
               </thead>
               <tbody>
-                {accounts.map((a) => (
-                  <tr key={a.id} className="border-b border-white/5 text-[#B0B0B0]">
-                    <td className="px-2 py-2 font-mono text-xs text-white">{a.email}</td>
-                    <td className="px-2 py-2 text-xs">{a.name}</td>
-                    <td className="px-2 py-2">
-                      <Badge tone={a.status.startsWith("New") ? "warning" : "success"}>
-                        {a.status}
-                      </Badge>
-                    </td>
-                    <td className="px-2 py-2 text-xs">
-                      {new Date(a.createdAt).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
+                {accounts.map((a) => {
+                  const ispMeta = ISP_STATUS_LABELS[a.ispStatus] || ISP_STATUS_LABELS.not_started;
+                  return (
+                    <tr key={a.id} className="border-b border-white/5 text-[#B0B0B0]">
+                      <td className="px-2 py-2 font-mono text-xs text-white">{a.email}</td>
+                      <td className="px-2 py-2 text-xs">{a.name}</td>
+                      <td className="px-2 py-2">
+                        <Badge tone={a.status.startsWith("New") ? "warning" : a.status === "Disabled" ? "danger" : "success"}>
+                          {a.status}
+                        </Badge>
+                      </td>
+                      <td className="px-2 py-2">
+                        <Badge tone={ispMeta.tone}>{ispMeta.label}</Badge>
+                      </td>
+                      <td className="px-2 py-2 text-xs">
+                        {new Date(a.createdAt).toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -166,7 +288,8 @@ function SimulatePurchaseCard() {
           </ul>
         )}
       </div>
-    </GlassCard>
+      </GlassCard>
+    </>
   );
 }
 
