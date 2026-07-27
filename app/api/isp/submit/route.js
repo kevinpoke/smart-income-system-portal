@@ -27,6 +27,16 @@ function validate(body) {
 //   rejected (an admin must explicitly reset via the admin ISP-reset
 //   action before a customer can resubmit) -- this is the
 //   "prevent duplicate submission" rule.
+//
+// SECURITY (Phase 3 correction): the WiFi password submitted here is used
+// only for the required-field validation above and is otherwise DISCARDED
+// -- it is never written to isp_setups, never written to accounts, never
+// logged (no console.log/error of `body` or `wifiPassword` anywhere in
+// this route), and never included in the response. The portal has no need
+// for the real credential to simulate Node activation. SSID IS stored
+// (isp_setups.ssid) since it's a low-sensitivity network name, but it is
+// only ever read back through authorized admin/customer detail views, not
+// the general account-list endpoints (see app/api/admin/accounts).
 export async function POST(request) {
   if (!isSameOrigin(request)) {
     return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
@@ -67,13 +77,14 @@ export async function POST(request) {
   const state = body.state.trim();
   const zip = body.zip.trim();
   const ssid = body.ssid.trim();
-  const wifiPassword = body.password;
+  // WiFi password is intentionally NOT captured into a variable used
+  // beyond validation -- it is never persisted or logged.
   const now = new Date().toISOString();
 
   db.prepare(
-    `INSERT INTO isp_setups (id, account_id, provider, street, city, state, zip, ssid, wifi_password, submitted_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(generateId("isp"), account.id, provider, street, city, state, zip, ssid, wifiPassword, now);
+    `INSERT INTO isp_setups (id, account_id, provider, street, city, state, zip, ssid, submitted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(generateId("isp"), account.id, provider, street, city, state, zip, ssid, now);
 
   db.prepare(
     `UPDATE accounts
