@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -10,18 +10,29 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
+import { useRouter } from "next/navigation";
 import { useEarningsSummary } from "@/lib/useEarningsSummary";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
+import { notifyAccountChanged } from "@/lib/accountEvents";
 import {
   formatCurrency,
   centsToDollars,
-  formatLongDuration,
+  formatCountdownParts,
 } from "@/lib/mockData";
 import { GlassCard, SectionTitle, FadeIn, Badge } from "@/components/ui/Primitives";
 import AnimatedNumber from "@/components/ui/AnimatedNumber";
 import Link from "next/link";
-import { TrendingUp, Clock, Wallet, Sparkles, Info } from "lucide-react";
+import {
+  TrendingUp,
+  Clock,
+  Wallet,
+  Sparkles,
+  Info,
+  Wifi,
+  WifiOff,
+  Server,
+} from "lucide-react";
 
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
@@ -92,19 +103,186 @@ function useLiveEarningsCents(summary, now, hasMounted) {
   }, [summary, now, hasMounted]);
 }
 
+// Purely-visual "wobble" for the "Today's expected earnings ~$X (demo
+// estimate)" line: re-rolls a fresh multiplier in [0.95, 1.05] every
+// 5-10s. This is display-only jitter layered on top of the real
+// server-computed todaysExpectedCents -- it never touches the ledger or
+// any persisted value, and is gated behind hasMounted (via the caller)
+// so SSR/first-client-render never disagree.
+function useJitterMultiplier() {
+  const [multiplier, setMultiplier] = useState(1);
+  useEffect(() => {
+    let timeoutId;
+    function reroll() {
+      const next = 1 + (Math.random() * 2 - 1) * 0.05; // +/-5%
+      setMultiplier(next);
+      const delayMs = 5000 + Math.random() * 5000; // 5-10s
+      timeoutId = setTimeout(reroll, delayMs);
+    }
+    reroll();
+    return () => clearTimeout(timeoutId);
+  }, []);
+  return multiplier;
+}
+
+function WifiToggleCard({ summary, refetch }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+
+  const eligible = summary?.ispStatus === "active" && Boolean(summary?.nodeConnectedAt);
+  const enabled = Boolean(summary?.wifiEnabled);
+
+  async function handleToggle() {
+    if (!eligible || pending) return;
+    setError("");
+    setPending(true);
+    try {
+      const res = await fetch("/api/wifi/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Unable to update WiFi state.");
+        return;
+      }
+      notifyAccountChanged();
+      await refetch();
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <GlassCard className="flex h-full flex-col justify-center gap-3 px-6 py-8">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#B0B0B0]">
+        {enabled ? (
+          <Wifi className="h-4 w-4 text-[#32B5FF]" />
+        ) : (
+          <WifiOff className="h-4 w-4 text-[#707070]" />
+        )}
+        WiFi Control
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          disabled={!eligible || pending}
+          onClick={handleToggle}
+          className={`relative inline-flex h-7 w-14 flex-shrink-0 items-center rounded-full transition-colors ${
+            enabled ? "bg-[#32B5FF]" : "bg-white/10"
+          } ${!eligible || pending ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+        >
+          <span
+            className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+              enabled ? "translate-x-8" : "translate-x-1.5"
+            }`}
+          />
+        </button>
+        <span className="font-mono text-lg font-bold text-white">
+          {enabled ? "ON" : "OFF"}
+        </span>
+      </div>
+      <div className="text-xs text-[#707070]">
+        {eligible
+          ? "Turning WiFi off freezes earnings accrual immediately; turning it back on resumes accrual (no retroactive credit for off time)."
+          : "WiFi control unlocks once ISP Setup is approved and your initial connection process is complete."}
+      </div>
+      {error && <div className="text-xs text-red-400">{error}</div>}
+    </GlassCard>
+  );
+}
+
+function YourNodesSection({ nodes, loading }) {
+  return (
+    <FadeIn delay={0.22}>
+      <GlassCard className="overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-white/10 px-5 py-4">
+          <Server className="h-4 w-4 text-[#32B5FF]" />
+          <h3 className="text-sm font-semibold text-white">Your Nodes</h3>
+        </div>
+        {loading ? (
+          <div className="px-5 py-6 text-xs text-[#707070]">Loading your Nodes…</div>
+        ) : nodes.length === 0 ? (
+          <div className="px-5 py-6 text-xs text-[#707070]">
+            You don&apos;t own any Nodes yet. Complete ISP Setup to get your first Node.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[600px] text-sm">
+              <thead>
+                <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
+                  <th className="px-4 py-3">Node ID</th>
+                  <th className="px-4 py-3">Node Type</th>
+                  <th className="px-4 py-3">Location</th>
+                  <th className="px-4 py-3 text-right">Est. Monthly Earnings</th>
+                </tr>
+              </thead>
+              <tbody>
+                {nodes.map((node) => (
+                  <tr key={node.nodeId} className="border-b border-white/5 text-[#B0B0B0]">
+                    <td className="px-4 py-3 font-mono text-xs text-white">#{node.nodeId}</td>
+                    <td className="px-4 py-3">
+                      <Badge tone={node.tier === "Super Node" ? "warning" : "accent"}>
+                        {node.tier}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 text-xs">{node.location || "—"}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs text-white">
+                      {formatCurrency(centsToDollars(node.estMonthlyCents))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </GlassCard>
+    </FadeIn>
+  );
+}
+
 export default function DashboardPage() {
-  const { summary, loading } = useEarningsSummary(15000);
+  const { summary, loading, refetch } = useEarningsSummary(15000);
   const now = useLiveClock(100);
   const hasMounted = useHasMounted();
+  const jitter = useJitterMultiplier();
+  const router = useRouter();
+
+  const [nodes, setNodes] = useState([]);
+  const [nodesLoading, setNodesLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadNodes() {
+      try {
+        const res = await fetch("/api/nodes/owned", { cache: "no-store" });
+        const data = await res.json();
+        if (!cancelled) setNodes(data.nodes || []);
+      } catch {
+        if (!cancelled) setNodes([]);
+      } finally {
+        if (!cancelled) setNodesLoading(false);
+      }
+    }
+    loadNodes();
+    return () => {
+      cancelled = true;
+    };
+  }, [summary?.active]);
 
   const liveCents = useLiveEarningsCents(summary, now, hasMounted);
   const live = centsToDollars(liveCents);
-  const todaysExpected = centsToDollars(summary?.todaysExpectedCents);
-  const averageDaily = centsToDollars(summary?.averageDailyCents);
+  const todaysExpectedRaw = centsToDollars(summary?.todaysExpectedCents);
+  const todaysExpected = hasMounted ? todaysExpectedRaw * jitter : todaysExpectedRaw;
+  const today = centsToDollars(summary?.todayAccruedCents);
   const week = centsToDollars(summary?.weekEarningsCents);
   const month = centsToDollars(summary?.monthEarningsCents);
   const lifetime = centsToDollars(summary?.lifetimeEarningsCents);
-  const balance = centsToDollars(summary?.currentBalanceCents);
 
   // payoutMs depends on Date.now() (`now`) -- gate it behind hasMounted so
   // the server render and first client render both fall into the existing
@@ -118,6 +296,7 @@ export default function DashboardPage() {
   if (hasMounted && summary?.payoutTargetAt) {
     payoutMs = Math.max(0, new Date(summary.payoutTargetAt).getTime() - now);
   }
+  const payoutParts = payoutMs != null ? formatCountdownParts(payoutMs) : null;
 
   const series = useMemo(
     () =>
@@ -150,7 +329,7 @@ export default function DashboardPage() {
         <InactiveState />
       ) : (
         <>
-          {/* Live Earnings + Average Daily Earnings */}
+          {/* Live Earnings + WiFi Control */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
             <FadeIn>
               <GlassCard className="relative overflow-hidden px-6 py-8 sm:px-10 sm:py-10">
@@ -178,20 +357,7 @@ export default function DashboardPage() {
             </FadeIn>
 
             <FadeIn delay={0.03}>
-              <GlassCard className="flex h-full flex-col justify-center gap-2 px-6 py-8">
-                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#B0B0B0]">
-                  <TrendingUp className="h-4 w-4 text-[#32B5FF]" />
-                  Average Daily Earnings
-                </div>
-                <AnimatedNumber
-                  value={averageDaily}
-                  className="font-mono text-3xl font-bold text-white"
-                />
-                <div className="text-xs text-[#707070]">
-                  Ledger-based average across {summary?.completedDays ?? 0} completed day
-                  {summary?.completedDays === 1 ? "" : "s"} (demo estimate).
-                </div>
-              </GlassCard>
+              <WifiToggleCard summary={summary} refetch={refetch} />
             </FadeIn>
           </div>
 
@@ -248,10 +414,10 @@ export default function DashboardPage() {
           {/* Summary Cards */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
+              { label: "Today (1d)", value: today, delay: 0.08 },
               { label: "This Week (7d)", value: week, delay: 0.1 },
               { label: "This Month (30d)", value: month, delay: 0.15 },
               { label: "Total Earnings (Lifetime)", value: lifetime, delay: 0.2 },
-              { label: "Current Balance", value: balance, delay: 0.25 },
             ].map((card) => (
               <FadeIn key={card.label} delay={card.delay}>
                 <GlassCard className="p-5">
@@ -267,9 +433,12 @@ export default function DashboardPage() {
             ))}
           </div>
 
+          {/* Your Nodes */}
+          <YourNodesSection nodes={nodes} loading={nodesLoading} />
+
           {/* Next payout */}
           <FadeIn delay={0.3}>
-            <GlassCard className="flex flex-col items-start justify-between gap-3 p-5 sm:flex-row sm:items-center">
+            <GlassCard className="flex flex-col items-start justify-between gap-4 p-5 sm:flex-row sm:items-center">
               <div className="flex items-center gap-3">
                 <div className="rounded-xl bg-[#32B5FF]/15 p-2.5">
                   <Clock className="h-5 w-5 text-[#32B5FF]" />
@@ -282,18 +451,37 @@ export default function DashboardPage() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {summary?.payoutAvailable ? (
-                  <Badge tone="success">Payout Available</Badge>
-                ) : (
-                  <>
-                    <Wallet className="h-4 w-4 text-[#32B5FF]" />
-                    <span className="font-mono text-lg font-bold text-white">
-                      {payoutMs != null ? formatLongDuration(payoutMs) : "--"}
-                    </span>
-                    <Badge tone="accent">remaining</Badge>
-                  </>
-                )}
+              <div className="flex flex-col items-end gap-2">
+                <div className="flex items-center gap-2">
+                  {summary?.payoutAvailable ? (
+                    <Badge tone="success">Payout Available</Badge>
+                  ) : (
+                    <>
+                      <Wallet className="h-4 w-4 text-[#32B5FF]" />
+                      {payoutParts ? (
+                        <span className="font-mono text-sm font-bold text-white">
+                          {payoutParts.months}mo {payoutParts.days}d {String(payoutParts.hours).padStart(2, "0")}h{" "}
+                          {String(payoutParts.minutes).padStart(2, "0")}m {String(payoutParts.seconds).padStart(2, "0")}s
+                        </span>
+                      ) : (
+                        <span className="font-mono text-sm font-bold text-white">--</span>
+                      )}
+                      <Badge tone="accent">remaining</Badge>
+                    </>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={!summary?.payoutAvailable}
+                  onClick={() => router.push("/withdrawals")}
+                  className={`rounded-xl px-4 py-2 text-xs font-semibold transition ${
+                    summary?.payoutAvailable
+                      ? "bg-[#32B5FF] text-[#06121a] shadow-[0_0_20px_rgba(50,181,255,0.35)] hover:bg-[#4dc0ff]"
+                      : "cursor-not-allowed bg-white/5 text-white/30"
+                  }`}
+                >
+                  Withdrawal
+                </button>
               </div>
             </GlassCard>
           </FadeIn>

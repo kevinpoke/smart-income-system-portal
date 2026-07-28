@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentAccountRaw } from "@/lib/session";
 import { computePayoutEstimates } from "@/lib/payoutsEngine";
+import { getPayoutTargetAt } from "@/lib/earningsEngine";
 
 // Authenticated customer's payout estimate rows. Purely derived from the
 // account id (for the seed) -- these are demo/marketing figures only and
@@ -11,6 +12,12 @@ import { computePayoutEstimates } from "@/lib/payoutsEngine";
 // ever touching another customer's data (there is no accountId parameter
 // anywhere in this route -- it always operates on the session's own
 // account).
+//
+// Phase 5: payoutTargetAt/payoutAvailable are read from the SAME shared
+// helper (lib/earningsEngine.js getPayoutTargetAt) the Dashboard uses via
+// /api/earnings/summary, so the "Next withdrawal available in..."
+// countdown here can never disagree with the Dashboard's "Next Payout"
+// countdown -- there is exactly one calculation, read from two routes.
 export async function GET() {
   const account = await getCurrentAccountRaw();
   if (!account) {
@@ -28,9 +35,13 @@ export async function GET() {
       ? `${account.isp_city}, ${account.isp_state}`
       : null;
 
+  const { payoutTargetAt, payoutAvailable } = getPayoutTargetAt(account);
+
   return NextResponse.json({
     mode: "demo",
     location,
     rows,
+    payoutTargetAt,
+    payoutAvailable,
   });
 }

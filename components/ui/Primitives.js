@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import clsx from "clsx";
+import Link from "next/link";
 
 export function GlassCard({ children, className = "", ...props }) {
   return (
@@ -112,5 +113,32 @@ export function FadeIn({ children, delay = 0, className = "" }) {
     >
       {children}
     </motion.div>
+  );
+}
+
+// Shared "Location Required" locked-state card, used by both the Payouts
+// page and the Nodes page (per spec: "Show the same 'Location Required'
+// locked-state popup/card used in the Payouts section"). `title`/`body`
+// are overridable so each page can phrase the copy appropriately while
+// keeping the exact same visual card and CTA.
+export function LocationRequiredCard({
+  title = "Location Required",
+  body = "Complete your ISP Setup to continue.",
+}) {
+  return (
+    <FadeIn>
+      <GlassCard className="flex flex-col items-start justify-between gap-3 p-5 sm:flex-row sm:items-center">
+        <div>
+          <div className="text-sm font-semibold text-white">{title}</div>
+          <div className="text-xs text-[#B0B0B0]">{body}</div>
+        </div>
+        <Link
+          href="/isp-setup"
+          className="rounded-xl bg-[#32B5FF] px-4 py-2.5 text-sm font-semibold text-[#06121a] shadow-[0_0_20px_rgba(50,181,255,0.35)] hover:bg-[#4dc0ff]"
+        >
+          Complete ISP Setup
+        </Link>
+      </GlassCard>
+    </FadeIn>
   );
 }

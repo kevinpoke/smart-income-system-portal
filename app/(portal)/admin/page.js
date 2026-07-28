@@ -1,13 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useStore } from "@/lib/store";
+import { useAccount } from "@/lib/useAccount";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
-import { totalEarnings } from "@/lib/earnings";
-import { MODULES_META, formatCurrency, formatCompactDuration, formatCountdown } from "@/lib/mockData";
+import { formatCurrency, centsToDollars, formatCountdown } from "@/lib/mockData";
 import { GlassCard, Badge, AccentButton, GhostButton } from "@/components/ui/Primitives";
-import { CheckCircle2, XCircle, Mail, Send, Zap, RefreshCw, ShieldCheck } from "lucide-react";
+import {
+  CheckCircle2,
+  XCircle,
+  Mail,
+  Zap,
+  RefreshCw,
+  ShieldCheck,
+  Lock,
+  Unlock,
+  DollarSign,
+  Sparkles,
+} from "lucide-react";
 
 const TEST_PAYLOAD = {
   email: "test@example.com",
@@ -27,9 +37,10 @@ const ISP_STATUS_LABELS = {
 // Real, SQLite-backed ISP approval panel (Phase 2). This operates on the
 // exact same /api/admin/accounts data as the "Real Accounts" table below
 // and the /api/admin/isp/[id]/approve route -- there is no Zustand/
-// localStorage involved anywhere in this component. The full admin
-// customer-management UI (search, create account, balance/multiplier
-// edits, etc.) is Phase 5 scope and is intentionally not built yet.
+// localStorage involved anywhere in this component. Kept as-is per Phase
+// 5 scope (the ISP approval workflow stays available outside User
+// Management, which is why the fake table's own Approve/Reject column
+// was removed rather than this panel).
 function IspApprovalPanel({ accounts, now, onApproved }) {
   const [approvingId, setApprovingId] = useState(null);
   const [error, setError] = useState("");
@@ -127,31 +138,9 @@ function IspApprovalPanel({ accounts, now, onApproved }) {
   );
 }
 
-function SimulatePurchaseCard() {
+function SimulatePurchaseCard({ accounts, recentEmails, loadingAccounts, now, loadAccounts }) {
   const [status, setStatus] = useState("idle"); // idle | loading | success | error
   const [result, setResult] = useState(null);
-  const [accounts, setAccounts] = useState([]);
-  const [recentEmails, setRecentEmails] = useState([]);
-  const [loadingAccounts, setLoadingAccounts] = useState(false);
-  const now = useLiveClock(1000);
-
-  async function loadAccounts() {
-    setLoadingAccounts(true);
-    try {
-      const res = await fetch("/api/admin/accounts");
-      const data = await res.json();
-      setAccounts(data.accounts || []);
-      setRecentEmails(data.recentEmails || []);
-    } catch {
-      // ignore, table just stays stale
-    } finally {
-      setLoadingAccounts(false);
-    }
-  }
-
-  useEffect(() => {
-    loadAccounts();
-  }, []);
 
   async function handleSimulate() {
     setStatus("loading");
@@ -181,212 +170,374 @@ function SimulatePurchaseCard() {
     <>
       <IspApprovalPanel accounts={accounts} now={now} onApproved={loadAccounts} />
       <GlassCard className="overflow-hidden">
-      <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-white">
-            Test Scenario: Simulate JVZoo Purchase
-          </h3>
-          <p className="text-xs text-[#B0B0B0]">
-            Sends a mock webhook payload ({TEST_PAYLOAD.email} /{" "}
-            {TEST_PAYLOAD.password}) to <code>/api/webhooks/purchase</code>{" "}
-            and creates a real account in the auth database.
-          </p>
+        <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-white">
+              Test Scenario: Simulate JVZoo Purchase
+            </h3>
+            <p className="text-xs text-[#B0B0B0]">
+              Sends a mock webhook payload ({TEST_PAYLOAD.email} /{" "}
+              {TEST_PAYLOAD.password}) to <code>/api/webhooks/purchase</code>{" "}
+              and creates a real account in the auth database.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={loadAccounts}
+              title="Refresh account list"
+              className="flex items-center gap-1 rounded-lg bg-white/5 px-3 py-2.5 text-xs font-semibold text-[#B0B0B0] hover:bg-white/10"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loadingAccounts ? "animate-spin" : ""}`} />
+            </button>
+            <AccentButton onClick={handleSimulate} disabled={status === "loading"}>
+              <Zap className="h-4 w-4" />
+              {status === "loading" ? "Sending..." : "Simulate JVZoo Purchase"}
+            </AccentButton>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={loadAccounts}
-            title="Refresh account list"
-            className="flex items-center gap-1 rounded-lg bg-white/5 px-3 py-2.5 text-xs font-semibold text-[#B0B0B0] hover:bg-white/10"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loadingAccounts ? "animate-spin" : ""}`} />
-          </button>
-          <AccentButton onClick={handleSimulate} disabled={status === "loading"}>
-            <Zap className="h-4 w-4" />
-            {status === "loading" ? "Sending..." : "Simulate JVZoo Purchase"}
-          </AccentButton>
-        </div>
-      </div>
 
-      {result && (
-        <div className="border-b border-white/10 px-5 py-3">
-          {status === "success" ? (
-            <Badge tone="success" className="mb-2">
-              <CheckCircle2 className="mr-1 h-3 w-3" /> Webhook succeeded
-            </Badge>
-          ) : (
-            <Badge tone="danger" className="mb-2">
-              <XCircle className="mr-1 h-3 w-3" /> Webhook failed
-            </Badge>
-          )}
-          <pre className="max-h-40 overflow-auto rounded-lg bg-black/30 p-3 text-[11px] text-[#B0B0B0]">
-            {JSON.stringify(result, null, 2)}
-          </pre>
-        </div>
-      )}
-
-      <div className="px-5 py-4">
-        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#707070]">
-          Real Accounts (SQLite: data/auth.db)
-        </h4>
-        {accounts.length === 0 ? (
-          <p className="text-xs text-[#707070]">No accounts created yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px] text-sm">
-              <thead>
-                <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
-                  <th className="px-2 py-2">Email</th>
-                  <th className="px-2 py-2">Name</th>
-                  <th className="px-2 py-2">Status</th>
-                  <th className="px-2 py-2">ISP Status</th>
-                  <th className="px-2 py-2">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.map((a) => {
-                  const ispMeta = ISP_STATUS_LABELS[a.ispStatus] || ISP_STATUS_LABELS.not_started;
-                  return (
-                    <tr key={a.id} className="border-b border-white/5 text-[#B0B0B0]">
-                      <td className="px-2 py-2 font-mono text-xs text-white">{a.email}</td>
-                      <td className="px-2 py-2 text-xs">{a.name}</td>
-                      <td className="px-2 py-2">
-                        <Badge tone={a.status.startsWith("New") ? "warning" : a.status === "Disabled" ? "danger" : "success"}>
-                          {a.status}
-                        </Badge>
-                      </td>
-                      <td className="px-2 py-2">
-                        <Badge tone={ispMeta.tone}>{ispMeta.label}</Badge>
-                      </td>
-                      <td className="px-2 py-2 text-xs">
-                        {new Date(a.createdAt).toLocaleString()}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        {result && (
+          <div className="border-b border-white/10 px-5 py-3">
+            {status === "success" ? (
+              <Badge tone="success" className="mb-2">
+                <CheckCircle2 className="mr-1 h-3 w-3" /> Webhook succeeded
+              </Badge>
+            ) : (
+              <Badge tone="danger" className="mb-2">
+                <XCircle className="mr-1 h-3 w-3" /> Webhook failed
+              </Badge>
+            )}
+            <pre className="max-h-40 overflow-auto rounded-lg bg-black/30 p-3 text-[11px] text-[#B0B0B0]">
+              {JSON.stringify(result, null, 2)}
+            </pre>
           </div>
         )}
 
-        <h4 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-[#707070]">
-          Email Log (outbox — "Email Sent" logic)
-        </h4>
-        {recentEmails.length === 0 ? (
-          <p className="text-xs text-[#707070]">No emails sent yet.</p>
-        ) : (
-          <ul className="space-y-1">
-            {recentEmails.map((m) => (
-              <li key={m.id} className="flex items-center gap-2 text-xs text-[#B0B0B0]">
-                <Mail className="h-3 w-3 text-[#32B5FF]" />
-                <span className="font-mono text-white">{m.to_email}</span>
-                <span>— {m.subject}</span>
-                <Badge tone={m.sent_via === "sendgrid" ? "success" : "default"} className="text-[10px]">
-                  {m.sent_via}
-                </Badge>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+        <div className="px-5 py-4">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#707070]">
+            Email Log (outbox — &quot;Email Sent&quot; logic)
+          </h4>
+          {recentEmails.length === 0 ? (
+            <p className="text-xs text-[#707070]">No emails sent yet.</p>
+          ) : (
+            <ul className="space-y-1">
+              {recentEmails.map((m) => (
+                <li key={m.id} className="flex items-center gap-2 text-xs text-[#B0B0B0]">
+                  <Mail className="h-3 w-3 text-[#32B5FF]" />
+                  <span className="font-mono text-white">{m.to_email}</span>
+                  <span>— {m.subject}</span>
+                  <Badge tone={m.sent_via === "sendgrid" ? "success" : "default"} className="text-[10px]">
+                    {m.sent_via}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </GlassCard>
     </>
   );
 }
 
-const STATUS_LABELS = {
-  new: { label: "New", tone: "default" },
-  isp_pending: { label: "Pending Approval", tone: "warning" },
-  active: { label: "Active", tone: "success" },
-};
+function BalanceModal({ account, onClose, onSubmitted }) {
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-function ModuleUnlockDropdown({ userId, currentModules }) {
-  const adminUnlockModule = useStore((s) => s.adminUnlockModule);
-  const [value, setValue] = useState("");
-
-  return (
-    <div className="flex items-center gap-1.5">
-      <select
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        className="rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
-      >
-        <option value="">Select module...</option>
-        {MODULES_META.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.id}. {m.title}
-          </option>
-        ))}
-      </select>
-      <button
-        disabled={!value}
-        onClick={() => {
-          adminUnlockModule(userId, Number(value));
-          setValue("");
-        }}
-        className="rounded-lg bg-[#32B5FF]/15 px-2 py-1.5 text-xs font-semibold text-[#32B5FF] disabled:opacity-30"
-      >
-        Unlock
-      </button>
-    </div>
-  );
-}
-
-function IspSetupCell({ user, now }) {
-  if (!user.ispSubmittedAt) {
-    return <span className="text-xs text-[#707070]">Not submitted</span>;
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    const dollars = Number(amount);
+    if (!Number.isFinite(dollars) || dollars === 0) {
+      setError("Enter a non-zero dollar amount (use a negative number to debit).");
+      return;
+    }
+    if (!reason.trim()) {
+      setError("A reason is required.");
+      return;
+    }
+    const amountCents = Math.round(dollars * 100);
+    const verb = amountCents > 0 ? "credit" : "debit";
+    if (!window.confirm(`Confirm: ${verb} ${formatCurrency(Math.abs(dollars))} to ${account.email}?`)) {
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/admin/accounts/${account.id}/balance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amountCents, reason: reason.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Unable to adjust balance.");
+        return;
+      }
+      onSubmitted();
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   }
-  const elapsed = now - new Date(user.ispSubmittedAt).getTime();
-  const hoursElapsed = elapsed / 3600000;
-  const overThreshold = hoursElapsed > 60 && user.status === "isp_pending";
 
   return (
-    <div className="space-y-1">
-      <div className="font-mono text-xs text-white">
-        {formatCompactDuration(elapsed)}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1E1E1E] p-6"
+      >
+        <h3 className="mb-1 text-base font-bold text-white">Adjust Balance</h3>
+        <p className="mb-4 text-xs text-[#707070]">{account.email}</p>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#B0B0B0]">Amount (USD, negative to debit)</span>
+            <input
+              autoFocus
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="25.00"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#B0B0B0]">Reason (required)</span>
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Goodwill credit for support issue"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
+            />
+          </label>
+          {error && <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>}
+          <div className="flex gap-2 pt-1">
+            <GhostButton type="button" onClick={onClose} className="flex-1">
+              Cancel
+            </GhostButton>
+            <AccentButton type="submit" disabled={submitting} className="flex-1">
+              {submitting ? "Submitting…" : "Submit"}
+            </AccentButton>
+          </div>
+        </form>
       </div>
-      {overThreshold && (
-        <Badge tone="warning" className="text-[10px]">
-          <Mail className="mr-1 h-2.5 w-2.5" /> Auto-email queued
-        </Badge>
-      )}
     </div>
   );
 }
 
-function ApproveRejectCell({ user }) {
-  const adminApproveIsp = useStore((s) => s.adminApproveIsp);
-  const adminRejectIsp = useStore((s) => s.adminRejectIsp);
+function AccountRow({ account, currentAdminId, onChanged }) {
+  const [emailDraft, setEmailDraft] = useState(account.email);
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [emailError, setEmailError] = useState("");
+  const [togglingDisable, setTogglingDisable] = useState(false);
+  const [showBalanceModal, setShowBalanceModal] = useState(false);
 
-  if (user.status !== "isp_pending") {
-    return <span className="text-xs text-[#707070]">—</span>;
+  const disabled = account.accountStatus === "disabled";
+  const ispMeta = ISP_STATUS_LABELS[account.ispStatus] || ISP_STATUS_LABELS.not_started;
+
+  async function handleSaveEmail() {
+    const trimmed = emailDraft.trim();
+    if (!trimmed || trimmed === account.email) {
+      setEditingEmail(false);
+      return;
+    }
+    setEmailError("");
+    setSavingEmail(true);
+    try {
+      const res = await fetch(`/api/admin/accounts/${account.id}/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: trimmed }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setEmailError(data.error || "Unable to update email.");
+        return;
+      }
+      setEditingEmail(false);
+      onChanged();
+    } catch {
+      setEmailError("Something went wrong. Please try again.");
+    } finally {
+      setSavingEmail(false);
+    }
+  }
+
+  async function handleToggleDisable() {
+    const nextDisabled = !disabled;
+    const isSelfTarget = account.id === currentAdminId;
+
+    if (nextDisabled) {
+      if (isSelfTarget) {
+        const confirmed = window.confirm(
+          "This is your own admin account — you will be logged out immediately if you disable it. Continue?"
+        );
+        if (!confirmed) return;
+      } else {
+        const confirmed = window.confirm(`Disable ${account.email}? This immediately ends all their sessions.`);
+        if (!confirmed) return;
+      }
+    } else {
+      const confirmed = window.confirm(`Re-enable ${account.email}?`);
+      if (!confirmed) return;
+    }
+
+    setTogglingDisable(true);
+    try {
+      const res = await fetch(`/api/admin/accounts/${account.id}/disable`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ disabled: nextDisabled }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        onChanged();
+      }
+    } catch {
+      // non-fatal; row just stays stale until next refresh
+    } finally {
+      setTogglingDisable(false);
+    }
   }
 
   return (
-    <div className="flex items-center gap-1.5">
-      <button
-        onClick={() => adminApproveIsp(user.id)}
-        title="Send Approve Participation button now"
-        className="flex items-center gap-1 rounded-lg bg-green-500/15 px-2 py-1.5 text-xs font-semibold text-green-400 hover:bg-green-500/25"
-      >
-        <CheckCircle2 className="h-3.5 w-3.5" /> Approve
-      </button>
-      <button
-        onClick={() => adminRejectIsp(user.id)}
-        className="flex items-center gap-1 rounded-lg bg-red-500/15 px-2 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-500/25"
-      >
-        <XCircle className="h-3.5 w-3.5" /> Reject
-      </button>
-    </div>
+    <tr className="border-b border-white/5 align-top text-[#B0B0B0] hover:bg-white/[0.03]">
+      <td className="px-4 py-3">
+        <div className="font-semibold text-white">{account.name}</div>
+        {editingEmail ? (
+          <div className="mt-1 flex items-center gap-1">
+            <input
+              value={emailDraft}
+              onChange={(e) => setEmailDraft(e.target.value)}
+              className="w-44 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
+            />
+            <button
+              onClick={handleSaveEmail}
+              disabled={savingEmail}
+              className="rounded-lg bg-[#32B5FF]/20 px-2 py-1 text-[10px] font-semibold text-[#32B5FF] disabled:opacity-50"
+            >
+              Save
+            </button>
+            <button
+              onClick={() => {
+                setEditingEmail(false);
+                setEmailDraft(account.email);
+                setEmailError("");
+              }}
+              className="text-[10px] text-[#707070] hover:text-white"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setEditingEmail(true)}
+            className="text-xs text-[#707070] underline decoration-dotted hover:text-white"
+            title="Click to edit email"
+          >
+            {account.email}
+          </button>
+        )}
+        {emailError && <div className="mt-1 text-[10px] text-red-400">{emailError}</div>}
+      </td>
+      <td className="px-4 py-3 text-xs capitalize">{account.role}</td>
+      <td className="px-4 py-3">
+        <Badge tone={disabled ? "danger" : "success"}>{disabled ? "Disabled" : "Active"}</Badge>
+      </td>
+      <td className="px-4 py-3 font-mono text-xs text-white">
+        {formatCurrency(centsToDollars(account.currentBalanceCents))}
+      </td>
+      <td className="px-4 py-3">
+        <Badge tone={ispMeta.tone}>{ispMeta.label}</Badge>
+      </td>
+      <td className="px-4 py-3 text-xs">{new Date(account.createdAt).toLocaleDateString()}</td>
+      <td className="px-4 py-3">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {account.role === "customer" && (
+            <>
+              <button
+                onClick={handleToggleDisable}
+                disabled={togglingDisable}
+                className={`flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold disabled:opacity-50 ${
+                  disabled
+                    ? "bg-green-500/15 text-green-400 hover:bg-green-500/25"
+                    : "bg-red-500/15 text-red-400 hover:bg-red-500/25"
+                }`}
+              >
+                {disabled ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+                {disabled ? "Re-enable" : "Disable"}
+              </button>
+              <button
+                onClick={() => setShowBalanceModal(true)}
+                className="flex items-center gap-1 rounded-lg bg-[#32B5FF]/15 px-2 py-1.5 text-xs font-semibold text-[#32B5FF] hover:bg-[#32B5FF]/25"
+              >
+                <DollarSign className="h-3.5 w-3.5" /> Balance
+              </button>
+            </>
+          )}
+        </div>
+      </td>
+      {showBalanceModal && (
+        <BalanceModal
+          account={account}
+          onClose={() => setShowBalanceModal(false)}
+          onSubmitted={() => {
+            setShowBalanceModal(false);
+            onChanged();
+          }}
+        />
+      )}
+    </tr>
   );
 }
 
 export default function AdminUsersPage() {
-  const users = useStore((s) => s.users);
-  const adminCompleteTestWithdrawal = useStore((s) => s.adminCompleteTestWithdrawal);
+  const { account: currentAdmin } = useAccount();
   const now = useLiveClock(1000);
-
-  const rows = useMemo(() => Object.values(users), [users]);
   const hasMounted = useHasMounted();
+
+  const [accounts, setAccounts] = useState([]);
+  const [recentEmails, setRecentEmails] = useState([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [unlockingAll, setUnlockingAll] = useState(false);
+
+  async function loadAccounts() {
+    setLoadingAccounts(true);
+    try {
+      const res = await fetch("/api/admin/accounts");
+      const data = await res.json();
+      setAccounts(data.accounts || []);
+      setRecentEmails(data.recentEmails || []);
+    } catch {
+      // ignore, table just stays stale
+    } finally {
+      setLoadingAccounts(false);
+    }
+  }
+
+  useEffect(() => {
+    // fetch-on-mount, same pattern as lib/useAccount.js.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial
+    loadAccounts();
+  }, []);
+
+  async function handleUnlockAll() {
+    if (!window.confirm("Unlock all modules for every customer account?")) return;
+    setUnlockingAll(true);
+    try {
+      const res = await fetch("/api/admin/accounts/unlock-all", { method: "POST" });
+      if (res.ok) await loadAccounts();
+    } finally {
+      setUnlockingAll(false);
+    }
+  }
+
+  const customerRows = useMemo(() => accounts.filter((a) => a.role === "customer"), [accounts]);
+  const adminRows = useMemo(() => accounts.filter((a) => a.role !== "customer"), [accounts]);
 
   if (!hasMounted) {
     return (
@@ -406,90 +557,63 @@ export default function AdminUsersPage() {
 
   return (
     <div className="space-y-6">
-      <SimulatePurchaseCard />
+      <SimulatePurchaseCard
+        accounts={accounts}
+        recentEmails={recentEmails}
+        loadingAccounts={loadingAccounts}
+        now={now}
+        loadAccounts={loadAccounts}
+      />
       <GlassCard className="overflow-hidden">
-        <div className="border-b border-white/10 px-5 py-4">
-          <h3 className="text-sm font-semibold text-white">User Management</h3>
-          <p className="text-xs text-[#B0B0B0]">
-            User name/email sourced from JVZoo purchase webhook (simulated).
-          </p>
+        <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-white">User Management</h3>
+            <p className="text-xs text-[#B0B0B0]">
+              Real accounts sourced from SQLite (data/auth.db).
+            </p>
+          </div>
+          <AccentButton onClick={handleUnlockAll} disabled={unlockingAll}>
+            <Sparkles className="h-4 w-4" />
+            {unlockingAll ? "Unlocking…" : "Unlock All Modules"}
+          </AccentButton>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1200px] text-sm">
+          <table className="w-full min-w-[1100px] text-sm">
             <thead>
               <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
                 <th className="px-4 py-3">User</th>
-                <th className="px-4 py-3">Balance</th>
+                <th className="px-4 py-3">Role</th>
                 <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Join Date</th>
-                <th className="px-4 py-3">Last Login</th>
-                <th className="px-4 py-3">Upsells</th>
-                <th className="px-4 py-3">Last Support</th>
-                <th className="px-4 py-3">Unlock Module</th>
-                <th className="px-4 py-3">Time Since ISP Setup</th>
-                <th className="px-4 py-3">Approve/Reject</th>
-                <th className="px-4 py-3">Test Withdrawal</th>
+                <th className="px-4 py-3">Balance</th>
+                <th className="px-4 py-3">ISP Status</th>
+                <th className="px-4 py-3">Created</th>
+                <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((user) => {
-                const statusMeta = STATUS_LABELS[user.status] || STATUS_LABELS.new;
-                const balance = totalEarnings(user, now);
-                return (
-                  <tr
-                    key={user.id}
-                    className="border-b border-white/5 align-top text-[#B0B0B0] hover:bg-white/[0.03]"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="font-semibold text-white">{user.name}</div>
-                      <div className="text-xs text-[#707070]">{user.email}</div>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-white">
-                      {formatCurrency(balance)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge tone={statusMeta.tone}>{statusMeta.label}</Badge>
-                    </td>
-                    <td className="px-4 py-3 text-xs">
-                      {new Date(user.joinDate).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3 text-xs">
-                      {new Date(user.lastLogin).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3 text-xs">{user.upsellsPurchased}</td>
-                    <td className="px-4 py-3 text-xs">
-                      {user.lastSupportContact
-                        ? new Date(user.lastSupportContact).toLocaleDateString()
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <ModuleUnlockDropdown userId={user.id} currentModules={user.modules} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <IspSetupCell user={user} now={now} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <ApproveRejectCell user={user} />
-                    </td>
-                    <td className="px-4 py-3">
-                      {user.withdrawal.testWithdrawalStatus === "requested" ? (
-                        <button
-                          onClick={() => adminCompleteTestWithdrawal(user.id)}
-                          className="flex items-center gap-1 rounded-lg bg-[#32B5FF]/15 px-2 py-1.5 text-xs font-semibold text-[#32B5FF] hover:bg-[#32B5FF]/25"
-                        >
-                          <Send className="h-3.5 w-3.5" /> Mark Complete
-                        </button>
-                      ) : (
-                        <span className="text-xs text-[#707070]">
-                          {user.withdrawal.testWithdrawalStatus === "complete"
-                            ? "Completed"
-                            : "—"}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+              {customerRows.map((account) => (
+                <AccountRow
+                  key={account.id}
+                  account={account}
+                  currentAdminId={currentAdmin?.id}
+                  onChanged={loadAccounts}
+                />
+              ))}
+              {adminRows.map((account) => (
+                <AccountRow
+                  key={account.id}
+                  account={account}
+                  currentAdminId={currentAdmin?.id}
+                  onChanged={loadAccounts}
+                />
+              ))}
+              {accounts.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-6 text-center text-xs text-[#707070]">
+                    No accounts yet.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

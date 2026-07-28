@@ -24,7 +24,8 @@ export async function GET() {
   const accounts = db
     .prepare(
       `SELECT id, email, name, must_change_password, role, account_status, created_at,
-              isp_status, isp_submitted_at, isp_approved_at, user_authorized_at, node_connected_at
+              isp_status, isp_submitted_at, isp_approved_at, user_authorized_at, node_connected_at,
+              current_balance_cents, lifetime_earnings_cents, modules_unlocked
        FROM accounts ORDER BY created_at DESC`
     )
     .all();
@@ -41,6 +42,7 @@ export async function GET() {
       email: a.email,
       name: a.name,
       role: a.role,
+      accountStatus: a.account_status,
       status: a.account_status === "disabled"
         ? "Disabled"
         : a.must_change_password
@@ -51,6 +53,9 @@ export async function GET() {
       ispApprovedAt: a.isp_approved_at,
       userAuthorizedAt: a.user_authorized_at,
       nodeConnectedAt: a.node_connected_at,
+      currentBalanceCents: a.current_balance_cents,
+      lifetimeEarningsCents: a.lifetime_earnings_cents,
+      modulesUnlocked: Boolean(a.modules_unlocked),
       createdAt: a.created_at,
     })),
     recentEmails: outbox,

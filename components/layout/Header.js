@@ -6,19 +6,22 @@ import { useHasMounted } from "@/lib/useHasMounted";
 import { PulsingDot } from "@/components/ui/Primitives";
 import { formatCompactDuration } from "@/lib/mockData";
 
-// WiFi connection indicator is driven entirely by isp_status from SQLite
-// (via /api/auth/me), never by client-only state. Only isp_status ===
-// "active" (which only the customer's own "I Approve" action can set --
-// see app/api/isp/authorize) shows the green/connected state; every other
-// status (not_started, pending_review, approved_awaiting_user) shows the
-// red/disconnected state, matching the Phase 2 requirement that admin
-// approval alone must not flip the header to connected.
+// WiFi connection indicator is driven entirely by SQLite (via
+// /api/auth/me), never by client-only state. "Connected" now requires
+// BOTH isp_status === "active" (which only the customer's own "I
+// Approve" action can set -- see app/api/isp/authorize) AND the
+// customer's own WiFi toggle being on (wifiEnabled) -- Phase 5's
+// on/off control must be reflected here too, not just the one-way ISP
+// activation flag. useAccount() already refetches on every mount and on
+// every accountEvents broadcast, so this stays in sync (and keeps
+// pulsing) across page loads and WiFi toggle flips without a hard
+// refresh.
 export default function Header() {
   const { account: user } = useAccount();
   const now = useLiveClock(1000);
   const hasMounted = useHasMounted();
 
-  const connected = user?.ispStatus === "active";
+  const connected = user?.ispStatus === "active" && Boolean(user?.wifiEnabled);
 
   // Uptime is derived from Date.now() (via useLiveClock), which necessarily
   // differs between the server render and the first client render -- the
