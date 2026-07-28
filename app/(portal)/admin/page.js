@@ -239,6 +239,57 @@ function SimulatePurchaseCard({ accounts, recentEmails, loadingAccounts, now, lo
   );
 }
 
+function UnlockAllModal({ account, onClose, onSubmitted }) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleConfirm() {
+    setError("");
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/admin/accounts/${account.id}/unlock-all`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Unable to unlock modules.");
+        return;
+      }
+      onSubmitted(data.message);
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1E1E1E] p-6"
+      >
+        <h3 className="mb-1 text-base font-bold text-white">Unlock All Modules</h3>
+        <p className="mb-4 text-xs text-[#B0B0B0]">
+          Unlock every module for{" "}
+          <span className="font-semibold text-white">{account.name || account.email}</span> (
+          {account.email}). This does not affect any other customer.
+        </p>
+        {error && <div className="mb-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>}
+        <div className="flex gap-2">
+          <GhostButton type="button" onClick={onClose} className="flex-1">
+            Cancel
+          </GhostButton>
+          <AccentButton type="button" onClick={handleConfirm} disabled={submitting} className="flex-1">
+            {submitting ? "Unlocking…" : "Confirm Unlock"}
+          </AccentButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BalanceModal({ account, onClose, onSubmitted }) {
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
@@ -335,6 +386,8 @@ function AccountRow({ account, currentAdminId, onChanged }) {
   const [emailError, setEmailError] = useState("");
   const [togglingDisable, setTogglingDisable] = useState(false);
   const [showBalanceModal, setShowBalanceModal] = useState(false);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [unlockMessage, setUnlockMessage] = useState("");
 
   const disabled = account.accountStatus === "disabled";
   const ispMeta = ISP_STATUS_LABELS[account.ispStatus] || ISP_STATUS_LABELS.not_started;
@@ -477,9 +530,16 @@ function AccountRow({ account, currentAdminId, onChanged }) {
               >
                 <DollarSign className="h-3.5 w-3.5" /> Balance
               </button>
+              <button
+                onClick={() => setShowUnlockModal(true)}
+                className="flex items-center gap-1 rounded-lg bg-yellow-500/15 px-2 py-1.5 text-xs font-semibold text-yellow-400 hover:bg-yellow-500/25"
+              >
+                <Sparkles className="h-3.5 w-3.5" /> Unlock All Modules
+              </button>
             </>
           )}
         </div>
+        {unlockMessage && <div className="mt-1 text-[10px] text-green-400">{unlockMessage}</div>}
       </td>
       {showBalanceModal && (
         <BalanceModal
@@ -487,6 +547,17 @@ function AccountRow({ account, currentAdminId, onChanged }) {
           onClose={() => setShowBalanceModal(false)}
           onSubmitted={() => {
             setShowBalanceModal(false);
+            onChanged();
+          }}
+        />
+      )}
+      {showUnlockModal && (
+        <UnlockAllModal
+          account={account}
+          onClose={() => setShowUnlockModal(false)}
+          onSubmitted={(message) => {
+            setShowUnlockModal(false);
+            setUnlockMessage(message || "Modules unlocked.");
             onChanged();
           }}
         />
@@ -503,7 +574,6 @@ export default function AdminUsersPage() {
   const [accounts, setAccounts] = useState([]);
   const [recentEmails, setRecentEmails] = useState([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
-  const [unlockingAll, setUnlockingAll] = useState(false);
 
   async function loadAccounts() {
     setLoadingAccounts(true);
@@ -524,17 +594,6 @@ export default function AdminUsersPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial
     loadAccounts();
   }, []);
-
-  async function handleUnlockAll() {
-    if (!window.confirm("Unlock all modules for every customer account?")) return;
-    setUnlockingAll(true);
-    try {
-      const res = await fetch("/api/admin/accounts/unlock-all", { method: "POST" });
-      if (res.ok) await loadAccounts();
-    } finally {
-      setUnlockingAll(false);
-    }
-  }
 
   const customerRows = useMemo(() => accounts.filter((a) => a.role === "customer"), [accounts]);
   const adminRows = useMemo(() => accounts.filter((a) => a.role !== "customer"), [accounts]);
@@ -569,13 +628,10 @@ export default function AdminUsersPage() {
           <div>
             <h3 className="text-sm font-semibold text-white">User Management</h3>
             <p className="text-xs text-[#B0B0B0]">
-              Real accounts sourced from SQLite (data/auth.db).
+              Real accounts sourced from SQLite (data/auth.db). &quot;Unlock All Modules&quot;
+              is available per-customer in the Actions column below.
             </p>
           </div>
-          <AccentButton onClick={handleUnlockAll} disabled={unlockingAll}>
-            <Sparkles className="h-4 w-4" />
-            {unlockingAll ? "Unlocking…" : "Unlock All Modules"}
-          </AccentButton>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1100px] text-sm">

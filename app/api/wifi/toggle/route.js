@@ -11,6 +11,15 @@ import { setWifiEnabled } from "@/lib/wifiEngine";
 // initial 20-second connection process is complete) -- attempting to
 // toggle before that is rejected rather than silently allowed.
 //
+// Dashboard adjustment pass: turning WiFi OFF remains immediate (this
+// route still handles that). Turning WiFi back ON is NO LONGER handled
+// here -- it now requires the 20-second reconnection flow
+// (POST /api/wifi/reconnect/start, then POST /api/wifi/reconnect/complete
+// once the visual progress reaches 100%, see lib/wifiEngine.js). This
+// route rejects `enabled: true` explicitly rather than silently
+// short-circuiting the reconnection requirement, so no caller can
+// accidentally bypass the 20-second flow.
+//
 // The client is responsible for calling notifyAccountChanged() (see
 // lib/accountEvents.js) after a successful response so every mounted
 // useAccount()/useEarningsSummary() consumer refetches immediately
@@ -37,6 +46,16 @@ export async function POST(request) {
     return NextResponse.json({ error: '"enabled" (boolean) is required.' }, { status: 400 });
   }
 
+  if (body.enabled === true) {
+    return NextResponse.json(
+      {
+        error:
+          "Turning WiFi back on requires the reconnection flow. Use /api/wifi/reconnect/start.",
+      },
+      { status: 409 }
+    );
+  }
+
   const db = getDb();
   const fresh = db.prepare(`SELECT * FROM accounts WHERE id = ?`).get(account.id);
 
@@ -47,7 +66,7 @@ export async function POST(request) {
     );
   }
 
-  const result = setWifiEnabled(db, account.id, body.enabled);
+  const result = setWifiEnabled(db, account.id, false);
   const updated = result.account || fresh;
 
   return NextResponse.json({ ok: true, account: toPublicAccount(updated) });
