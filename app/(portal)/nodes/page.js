@@ -125,11 +125,33 @@ function WaitlistButton() {
   );
 }
 
+// Small, subtle-pulse WiFi connection indicator for the Nodes marketplace
+// table (Phase 5 correction). Every row shown belongs to the same viewing
+// customer's account, so this reflects the customer's OWN
+// ispStatus/wifiEnabled state (from useAccount(), fetched once for the
+// whole page -- never a separate per-row network call), not a per-node
+// connection state. Connected: green, slow custom-duration pulse.
+// Disconnected: static red/muted, no pulse -- mirrors the Header's
+// disconnected treatment.
+function NodeWifiIndicator({ connected }) {
+  if (connected) {
+    return (
+      <Wifi
+        className="h-3 w-3 animate-pulse text-green-400 [animation-duration:2.5s] [filter:drop-shadow(0_0_3px_rgba(74,222,128,0.7))]"
+        aria-label="WiFi connected"
+      />
+    );
+  }
+  return <Wifi className="h-3 w-3 text-red-500/70" aria-label="WiFi disconnected" />;
+}
+
 export default function NodesPage() {
   const { account, loading: accountLoading } = useAccount();
   const [nodes, setNodes] = useState([]);
   const [locked, setLocked] = useState(true);
   const [loading, setLoading] = useState(true);
+
+  const wifiConnected = account?.ispStatus === "active" && Boolean(account?.wifiEnabled);
 
   useEffect(() => {
     let cancelled = false;
@@ -227,7 +249,7 @@ export default function NodesPage() {
                       <td className="px-4 py-3 font-mono text-xs text-white">#{node.nodeId}</td>
                       <td className="px-4 py-3 text-xs">
                         <span className="inline-flex items-center gap-1">
-                          <Wifi className="h-3 w-3 text-[#707070]" />
+                          <NodeWifiIndicator connected={wifiConnected} />
                           {node.location}
                         </span>
                       </td>
@@ -239,8 +261,10 @@ export default function NodesPage() {
                         </Badge>
                       </td>
                       <td className="px-4 py-3 font-mono text-xs">{node.ip}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs text-white">
-                        {formatCurrency(centsToDollars(node.estMonthlyCents))}
+                      <td className="px-4 py-3 text-right font-mono text-xs">
+                        <span className="text-white [text-shadow:0_0_8px_rgba(50,181,255,0.5)]">
+                          {formatCurrency(centsToDollars(node.estMonthlyCents))}
+                        </span>
                         <div className="text-[10px] font-sans text-[#707070]">estimated</div>
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-xs text-white">

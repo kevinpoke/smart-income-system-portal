@@ -71,15 +71,29 @@ function InactiveState() {
   );
 }
 
-// Live Earnings interpolates smoothly BETWEEN server polls: we know the
-// server-confirmed total as of `todayStartAt` (which is always $0 baseline
-// for "today's" contribution, since today's ledger row is intentionally
-// never written until it's no longer "today" -- see
-// lib/earningsEngine.js) plus lifetime prior-days total. Between polls we
-// linearly project today's expected amount by elapsed fraction of the day,
-// which is exactly the same "expected daily estimate" the dashboard labels
-// as such -- it never invents money that isn't backed by either a written
-// ledger row (prior days) or the clearly-labeled today's-estimate rule.
+// Live Earnings interpolates smoothly BETWEEN server polls. The server
+// (lib/earningsEngine.js computeEarningsSummary) is the ONLY source of
+// truth: `summary.lifetimeEarningsCents` is every completed prior cycle's
+// real ledger total, and `summary.todayAccruedCents` is the current
+// cycle's WiFi-gated accrual as of the last poll. This hook NEVER invents
+// independent progress -- it only fills the small gap between polls by
+// projecting forward from the server-confirmed `todayAccruedCents` at the
+// same per-ms rate the server itself uses (`todaysExpectedCents` spread
+// evenly across the full cycle duration), clamped so it can never exceed
+// `todaysExpectedCents` and so it never drifts far ahead of what the next
+// poll (every 15s -- see lib/useEarningsSummary.js) will confirm.
+//
+// Phase 5 correction (fixes the "jumps to full amount / freezes at ~$90"
+// bug): the PREVIOUS implementation computed elapsedMs directly against
+// wall-clock `now` and assumed a full, uninterrupted 24h day of uptime
+// (`fractionOfDay = elapsedMs / 86400000`), completely ignoring
+// `summary.wifiEnabled` and `summary.todayAccruedCents`. That is why it
+// reached the full daily amount regardless of actual connected time (100%
+// uptime assumption) and never responded to the WiFi toggle. The fix:
+// interpolate forward from the server's own already-WiFi-gated
+// `todayAccruedCents`, and freeze immediately (return the server-confirmed
+// total with zero further addition) whenever `summary.wifiEnabled` is
+// false.
 //
 // `hasMounted` gates the Date.now()-driven projection: before mount (i.e.
 // during SSR and the first client render) this returns the static,
@@ -87,20 +101,55 @@ function InactiveState() {
 // and the first client render always agree. Once mounted, the live
 // per-second ticking projection kicks in.
 function useLiveEarningsCents(summary, now, hasMounted) {
+  const [baseline, setBaseline] = useState({ summary: null, atMs: 0 });
+
+  useEffect(() => {
+    // Records when this exact server-confirmed summary was first observed
+    // so the interpolation below can compute "how long has it been since
+    // the last poll" -- same fetch-on-change bookkeeping pattern used
+    // elsewhere in this app (see lib/useAccount.js).
+    if (summary) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- baseline bookkeeping, not a render-triggering side effect
+      setBaseline({ summary, atMs: Date.now() });
+    }
+  }, [summary]);
+
   return useMemo(() => {
     if (!summary?.active) return 0;
     const priorDaysCents = summary.lifetimeEarningsCents || 0;
-    if (!hasMounted) return priorDaysCents;
-    const todayStart = new Date(summary.todayStartAt).getTime();
-    // Never project earnings before the Node's actual connection moment,
-    // even on the very first (partial) day of activation.
-    const connectedAt = summary.nodeConnectedAt ? new Date(summary.nodeConnectedAt).getTime() : todayStart;
-    const accrualStart = Math.max(todayStart, connectedAt);
-    const elapsedMs = Math.max(0, now - accrualStart);
-    const fractionOfDay = Math.min(1, elapsedMs / 86400000);
-    const todayProjectedCents = (summary.todaysExpectedCents || 0) * fractionOfDay;
-    return priorDaysCents + todayProjectedCents;
-  }, [summary, now, hasMounted]);
+    const serverAccruedCents = summary.todayAccruedCents || 0;
+    if (!hasMounted) return priorDaysCents + serverAccruedCents;
+
+    // WiFi off: never project further increase while disconnected --
+    // literally just the last server-confirmed total, no client-side
+    // addition at all.
+    if (!summary.wifiEnabled) {
+      return priorDaysCents + serverAccruedCents;
+    }
+
+    const cycleStartMs = new Date(summary.todayStartAt).getTime();
+    const cycleEndMs = summary.cycleEndAt
+      ? new Date(summary.cycleEndAt).getTime()
+      : cycleStartMs + 86400000;
+    const cycleDurationMs = Math.max(1, cycleEndMs - cycleStartMs);
+
+    // Baseline timestamp: the moment this exact `summary` object was
+    // first observed (set by the effect above, stored in state so it's
+    // safe to read during render). Falls back to `now` for the very
+    // first render of a brand-new summary, which correctly yields zero
+    // projected extra until the effect commits.
+    const baselineAtMs = baseline.summary === summary ? baseline.atMs : now;
+    const elapsedSincePollMs = Math.max(0, now - baselineAtMs);
+    const ratePerMs = (summary.todaysExpectedCents || 0) / cycleDurationMs;
+    const projectedExtraCents = elapsedSincePollMs * ratePerMs;
+
+    const interpolatedTodayCents = Math.min(
+      summary.todaysExpectedCents || 0,
+      serverAccruedCents + projectedExtraCents
+    );
+
+    return priorDaysCents + interpolatedTodayCents;
+  }, [summary, now, hasMounted, baseline]);
 }
 
 // Purely-visual "wobble" for the "Today's expected earnings ~$X (demo
@@ -438,7 +487,7 @@ export default function DashboardPage() {
 
           {/* Next payout */}
           <FadeIn delay={0.3}>
-            <GlassCard className="flex flex-col items-start justify-between gap-4 p-5 sm:flex-row sm:items-center">
+            <GlassCard className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <div className="rounded-xl bg-[#32B5FF]/15 p-2.5">
                   <Clock className="h-5 w-5 text-[#32B5FF]" />
@@ -451,7 +500,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
               </div>
-              <div className="flex flex-col items-end gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-3 sm:justify-end sm:gap-4">
                 <div className="flex items-center gap-2">
                   {summary?.payoutAvailable ? (
                     <Badge tone="success">Payout Available</Badge>

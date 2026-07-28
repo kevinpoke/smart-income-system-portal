@@ -34,9 +34,18 @@ export default function Header() {
   // Computed inline (not useMemo) -- the React Compiler auto-memoizes this
   // and its own dependency inference disagreed with an explicit dep array
   // here (it doesn't count `hasMounted`/`now` the way a manual array does).
+  //
+  // Phase 5 correction: uptime must reflect the customer's own WiFi
+  // toggle, not just the one-time Node activation moment. Derive it from
+  // `user.wifiStateSince` (updated to `now` on every on/off transition --
+  // see lib/wifiEngine.js setWifiEnabled -- and initialized at Node
+  // activation time in app/api/isp/authorize) instead of
+  // `user.nodeConnectedAt`, so toggling WiFi off then back on visibly
+  // resets displayed uptime to ~0 and only counts the current continuous
+  // connected session.
   let uptimeLabel = null;
-  if (hasMounted && connected && user?.nodeConnectedAt) {
-    const elapsed = now - new Date(user.nodeConnectedAt).getTime();
+  if (hasMounted && connected && user?.wifiStateSince) {
+    const elapsed = now - new Date(user.wifiStateSince).getTime();
     uptimeLabel = formatCompactDuration(elapsed);
   }
 
