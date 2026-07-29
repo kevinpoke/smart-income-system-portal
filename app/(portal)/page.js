@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -15,6 +15,7 @@ import { useEarningsSummary } from "@/lib/useEarningsSummary";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
 import { notifyAccountChanged } from "@/lib/accountEvents";
+import { useSteppedConnectionProgress } from "@/lib/useSteppedConnectionProgress";
 import {
   formatCurrency,
   centsToDollars,
@@ -340,9 +341,19 @@ function WifiToggleCard({ summary, refetch }) {
           </span>
         </div>
         <div className="text-xs text-[#707070]">
-          {eligible
-            ? "Turning WiFi off freezes earnings accrual immediately. Turning it back on requires a 20-second reconnection before accrual resumes (no retroactive credit for off time)."
-            : "WiFi control unlocks once ISP Setup is approved and your initial connection process is complete."}
+          {eligible ? (
+            <>
+              Disconnect your WiFi from the StarAtlas Network at any time. Disabling the
+              connection will immediately pause earnings accrual. Re-enabling it requires
+              reconnection, and no earnings will be credited for the time your WiFi was
+              disconnected.
+              <br />
+              <br />
+              For assistance reconnecting, please contact Support.
+            </>
+          ) : (
+            "WiFi control unlocks once ISP Setup is approved and your initial connection process is complete."
+          )}
         </div>
         {error && <div className="text-xs text-red-400">{error}</div>}
       </GlassCard>
@@ -366,80 +377,28 @@ function WifiToggleCard({ summary, refetch }) {
 }
 
 // 0% -> 100% "Establishing a Secure Connection..." progress modal for the
-// OFF -> ON reconnection flow. The visual bar is a smooth, time-based
-// display only (ticks every 100ms over exactly 20 seconds) -- it does
-// NOT represent literal backend progress, since /api/wifi/reconnect/complete
-// completes in a single request. The real backend completion call is
-// fired only once the visual timer reaches 100%, and the SERVER
-// independently re-validates the full 20 seconds has genuinely elapsed
-// (lib/wifiEngine.js completeWifiReconnect) before marking the account
-// connected -- so onDone() only ever fires after both the visual timer
-// AND the real backend operation have succeeded (never before).
-//
-// Modal cannot be closed and the underlying toggle is fully disabled
-// while this is mounted (see WifiToggleCard's `reconnecting` state
-// disabling the switch), preventing double-submission. If the customer
-// refreshes mid-flow, `startedAt` is re-derived from the server-persisted
+// OFF -> ON reconnection flow. Progress advances in exact discrete 5%
+// steps once per second (0, 5, 10, ... 100) over exactly 20 seconds --
+// driven by the shared lib/useSteppedConnectionProgress.js hook (see that
+// file's header comment for the root-cause diagnosis of the previous
+// "stuck at 0%" bug and the completion-reliability design: bounded
+// automatic retries on transient/network failures, a single real wait+
+// retry when the server reports the window hasn't fully elapsed yet, and
+// "already connected" always treated as success). onDone() only ever
+// fires after the visual timer AND the real backend completion call have
+// both succeeded (never before). If the customer refreshes mid-flow,
+// `startedAt` is re-derived from the server-persisted
 // wifiReconnectStartedAt (via the parent's summary poll), so the visual
-// bar resumes from the CORRECT remaining progress rather than restarting
-// at 0% -- no earnings can leak from a refresh during this window because
-// the backend never marks wifi_enabled = 1 until it independently
-// confirms 20 real seconds have elapsed since that persisted timestamp.
+// bar resumes from the CORRECT step rather than restarting at 0%.
 function ReconnectModal({ startedAt, onDone, onError }) {
-  const [progress, setProgress] = useState(0);
-  // Dashboard adjustment pass: `Date.now()` (an impure call) must never
-  // run during render/the initial useRef() evaluation (React's purity
-  // rules) -- start the ref at `null` and resolve the real starting
-  // instant inside a useEffect instead (falling back to "now" only if the
-  // server hasn't yet returned a persisted `startedAt`, which happens
-  // for one render at most immediately after starting a fresh attempt).
-  const startedAtMsRef = useRef(null);
-  const firedCompleteRef = useRef(false);
-
-  useEffect(() => {
-    if (startedAt) {
-      startedAtMsRef.current = new Date(startedAt).getTime();
-    } else if (startedAtMsRef.current === null) {
-      startedAtMsRef.current = Date.now();
-    }
-  }, [startedAt]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const elapsed = Date.now() - startedAtMsRef.current;
-      const pct = Math.min(100, (elapsed / RECONNECT_DURATION_MS) * 100);
-      setProgress(pct);
-
-      if (pct >= 100 && !firedCompleteRef.current) {
-        firedCompleteRef.current = true;
-        clearInterval(interval);
-        fetch("/api/wifi/reconnect/complete", { method: "POST" })
-          .then(async (res) => {
-            const data = await res.json().catch(() => ({}));
-            if (res.ok) {
-              onDone();
-            } else if (data.remainingMs) {
-              // Server disagrees that 20s has elapsed (e.g. clock drift) --
-              // wait out the real remainder it reports, then retry once.
-              setTimeout(() => {
-                fetch("/api/wifi/reconnect/complete", { method: "POST" })
-                  .then(async (retryRes) => {
-                    const retryData = await retryRes.json().catch(() => ({}));
-                    if (retryRes.ok) onDone();
-                    else onError(retryData.error || "Connection failed. Please try again.");
-                  })
-                  .catch(() => onError("Connection failed. Please try again."));
-              }, data.remainingMs + 200);
-            } else {
-              onError(data.error || "Connection failed. Please try again.");
-            }
-          })
-          .catch(() => onError("Connection failed. Please try again."));
-      }
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, [onDone, onError]);
+  const { progress, retrying } = useSteppedConnectionProgress({
+    active: true,
+    startedAt,
+    durationMs: RECONNECT_DURATION_MS,
+    completeUrl: "/api/wifi/reconnect/complete",
+    onDone,
+    onError,
+  });
 
   return (
     <motion.div
@@ -457,11 +416,14 @@ function ReconnectModal({ startedAt, onDone, onError }) {
         <h3 className="mt-4 text-base font-bold text-white">{RECONNECT_PROGRESS_COPY}</h3>
         <div className="mt-5 h-3 w-full overflow-hidden rounded-full bg-white/10">
           <div
-            className="h-full rounded-full bg-[#32B5FF] shadow-[0_0_12px_rgba(50,181,255,0.6)] transition-[width] duration-150 ease-linear"
+            className="h-full rounded-full bg-[#32B5FF] shadow-[0_0_12px_rgba(50,181,255,0.6)] transition-[width] duration-300 ease-linear"
             style={{ width: `${progress}%` }}
           />
         </div>
-        <div className="mt-2 font-mono text-sm text-[#B0B0B0]">{Math.floor(progress)}%</div>
+        <div className="mt-2 font-mono text-sm text-[#B0B0B0]">{progress}%</div>
+        {retrying && (
+          <div className="mt-2 text-xs text-[#707070]">Reconnecting to the server…</div>
+        )}
       </motion.div>
     </motion.div>
   );
@@ -681,7 +643,6 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-1.5 text-xs text-[#B0B0B0]">
                     <Info className="h-3 w-3" />
                     Today&apos;s expected earnings ~{formatCurrency(todaysExpected)}
-                    <span className="text-[#707070]">(demo estimate)</span>
                   </div>
                 </div>
               </GlassCard>
@@ -697,7 +658,7 @@ export default function DashboardPage() {
             <GlassCard className="p-4 sm:p-6">
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <h3 className="text-sm font-semibold text-white">
-                  Earnings Overview (Last 14 Days — Ledger)
+                  Earnings Overview (Last 14 Days)
                 </h3>
               </div>
               <div className="h-72 w-full">

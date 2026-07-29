@@ -94,22 +94,27 @@ export default function Sidebar() {
                   : "text-[#B0B0B0] hover:bg-white/5 hover:text-white"
               )}
             >
-              <span className="relative inline-flex">
-                <Icon
-                  className={clsx(
-                    "h-[18px] w-[18px] transition-colors",
-                    active ? "text-[#32B5FF]" : "text-[#B0B0B0] group-hover:text-white"
-                  )}
-                />
+              <span
+                className={clsx(
+                  "h-[18px] w-[18px] transition-colors",
+                  active ? "text-[#32B5FF]" : "text-[#B0B0B0] group-hover:text-white"
+                )}
+              >
+                <Icon className="h-[18px] w-[18px]" />
+              </span>
+              <span className="flex flex-1 items-center justify-between">
+                {item.label}
                 {showSupportBadge && (
                   <span
-                    className="absolute -right-1 -top-1 h-2 w-2 animate-pulse rounded-full bg-[#32B5FF] shadow-[0_0_6px_rgba(50,181,255,0.8)]"
+                    className="relative inline-flex h-2.5 w-2.5 flex-shrink-0"
                     aria-label="Unread support reply"
                     title="Unread support reply"
-                  />
+                  >
+                    <span className="absolute inline-flex h-full w-full animate-[ping_0.8s_ease-in-out_infinite] rounded-full bg-[#32B5FF] opacity-90" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#5fd0ff] shadow-[0_0_10px_3px_rgba(50,181,255,0.95)]" />
+                  </span>
                 )}
               </span>
-              {item.label}
             </Link>
           );
         })}

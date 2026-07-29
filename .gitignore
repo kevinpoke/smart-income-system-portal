@@ -40,6 +40,11 @@ yarn-error.log*
 *.db-wal
 *.db-shm
 
+# refinement pass: user-uploaded profile photos -- never commit real
+# uploaded images; keep the directory structure via .gitkeep only.
+/public/uploads/avatars/*
+!/public/uploads/avatars/.gitkeep
+
 # vercel
 .vercel
 

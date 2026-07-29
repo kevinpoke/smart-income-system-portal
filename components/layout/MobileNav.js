@@ -68,17 +68,20 @@ export default function MobileNav() {
               active ? "text-[#32B5FF]" : "text-[#707070]"
             )}
           >
-            <span className="relative inline-flex">
-              <Icon className="h-5 w-5" />
+            <Icon className="h-5 w-5" />
+            <span className="flex items-center gap-1">
+              {item.label}
               {showSupportBadge && (
                 <span
-                  className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-[#32B5FF] shadow-[0_0_6px_rgba(50,181,255,0.8)]"
+                  className="relative inline-flex h-2 w-2 flex-shrink-0"
                   aria-label="Unread support reply"
                   title="Unread support reply"
-                />
+                >
+                  <span className="absolute inline-flex h-full w-full animate-[ping_0.8s_ease-in-out_infinite] rounded-full bg-[#32B5FF] opacity-90" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[#5fd0ff] shadow-[0_0_8px_2px_rgba(50,181,255,0.95)]" />
+                </span>
               )}
             </span>
-            {item.label}
           </Link>
         );
       })}

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useAccount } from "@/lib/useAccount";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
 import { notifyAccountChanged } from "@/lib/accountEvents";
+import { useSteppedConnectionProgress } from "@/lib/useSteppedConnectionProgress";
 import { ISP_PROVIDERS, US_STATES, formatCountdown } from "@/lib/mockData";
 import {
   GlassCard,
@@ -17,7 +18,6 @@ import { CheckCircle2, Clock3, Wifi, ShieldCheck } from "lucide-react";
 
 const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
 const CONNECTION_DURATION_MS = 20000; // exactly 20 seconds, per spec -- must match lib/ispEngine.js
-const PROGRESS_TICK_MS = 100;
 
 function Field({ label, children }) {
   return (
@@ -34,82 +34,26 @@ const inputClass =
   "w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder-[#707070] outline-none transition focus:border-[#32B5FF]/60 focus:ring-1 focus:ring-[#32B5FF]/60";
 
 // Renders the 0%->100% "Establishing a Secure Connection..." progress UI.
-// The visual bar is a smooth, time-based display only (ticks every 100ms
-// over exactly 20 seconds) -- it does NOT represent literal backend
-// progress, since /api/isp/authorize/complete completes in a single
-// request. The real backend completion call is fired only once the
-// visual timer reaches 100%, and the SERVER independently re-validates
-// the full 20 seconds has genuinely elapsed (lib/ispEngine.js
-// completeIspAuthorization) before actually activating the account -- so
-// onDone() only ever fires after both the visual timer AND the real
-// backend operation have succeeded (never before).
-//
-// `startedAt` is the SERVER-PERSISTED isp_authorize_started_at (never a
-// client-only timer as the source of truth) -- this is what lets a
-// customer refreshing mid-flow resume showing the correct remaining
-// progress instead of restarting at 0% or getting stuck. No earnings/
-// activation can leak from a refresh during this window because the
-// backend never marks isp_status = 'active' until it independently
-// confirms 20 real seconds have elapsed since that persisted timestamp.
-// Duplicate completion requests are prevented both by this component
-// only ever firing one completion call per 100% crossing (firedCompleteRef)
-// and by the server's own idempotent "already active" handling.
+// Progress advances in exact discrete 5% steps once per second (0, 5,
+// 10, ... 100) over exactly 20 seconds -- driven by the shared
+// lib/useSteppedConnectionProgress.js hook (see that file's header
+// comment for the root-cause diagnosis of the previous "stuck at 0%" bug
+// and the completion-reliability design: bounded automatic retries on
+// transient/network failures, a single real wait+retry when the server
+// reports the window hasn't fully elapsed yet, and "already active"
+// always treated as success). `startedAt` is the SERVER-PERSISTED
+// isp_authorize_started_at (never a client-only timer as the source of
+// truth) -- this is what lets a customer refreshing mid-flow resume
+// showing the correct step instead of restarting at 0% or getting stuck.
 function ConnectionProgress({ startedAt, onDone, onError }) {
-  const [progress, setProgress] = useState(0);
-  // `Date.now()` (an impure call) must never run during render/the
-  // initial useRef() evaluation (React's purity rules) -- start the ref
-  // at `null` and resolve the real starting instant inside a useEffect
-  // instead (falling back to "now" only if the server hasn't yet
-  // returned a persisted `startedAt`, which happens for one render at
-  // most immediately after starting a fresh attempt).
-  const startedAtMsRef = useRef(null);
-  const firedCompleteRef = useRef(false);
-
-  useEffect(() => {
-    if (startedAt) {
-      startedAtMsRef.current = new Date(startedAt).getTime();
-    } else if (startedAtMsRef.current === null) {
-      startedAtMsRef.current = Date.now();
-    }
-  }, [startedAt]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (startedAtMsRef.current === null) return; // waiting on the server's persisted startedAt
-      const elapsed = Date.now() - startedAtMsRef.current;
-      const pct = Math.min(100, Math.max(0, (elapsed / CONNECTION_DURATION_MS) * 100));
-      setProgress(pct);
-
-      if (pct >= 100 && !firedCompleteRef.current) {
-        firedCompleteRef.current = true;
-        clearInterval(interval);
-        fetch("/api/isp/authorize/complete", { method: "POST" })
-          .then(async (res) => {
-            const data = await res.json().catch(() => ({}));
-            if (res.ok) {
-              onDone();
-            } else if (data.remainingMs) {
-              // Server disagrees that 20s has elapsed (e.g. clock drift) --
-              // wait out the real remainder it reports, then retry once.
-              setTimeout(() => {
-                fetch("/api/isp/authorize/complete", { method: "POST" })
-                  .then(async (retryRes) => {
-                    const retryData = await retryRes.json().catch(() => ({}));
-                    if (retryRes.ok) onDone();
-                    else onError(retryData.error || "Connection failed. Please try again.");
-                  })
-                  .catch(() => onError("Connection failed. Please try again."));
-              }, data.remainingMs + 200);
-            } else {
-              onError(data.error || "Connection failed. Please try again.");
-            }
-          })
-          .catch(() => onError("Connection failed. Please try again."));
-      }
-    }, PROGRESS_TICK_MS);
-
-    return () => clearInterval(interval);
-  }, [onDone, onError]);
+  const { progress, retrying } = useSteppedConnectionProgress({
+    active: true,
+    startedAt,
+    durationMs: CONNECTION_DURATION_MS,
+    completeUrl: "/api/isp/authorize/complete",
+    onDone,
+    onError,
+  });
 
   return (
     <GlassCard className="flex flex-col items-center gap-5 px-6 py-14 text-center">
@@ -120,13 +64,14 @@ function ConnectionProgress({ startedAt, onDone, onError }) {
       <div className="w-full max-w-md">
         <div className="h-3 w-full overflow-hidden rounded-full bg-white/10">
           <div
-            className="h-full rounded-full bg-[#32B5FF] shadow-[0_0_12px_rgba(50,181,255,0.6)] transition-[width] duration-150 ease-linear"
+            className="h-full rounded-full bg-[#32B5FF] shadow-[0_0_12px_rgba(50,181,255,0.6)] transition-[width] duration-300 ease-linear"
             style={{ width: `${progress}%` }}
           />
         </div>
-        <div className="mt-2 font-mono text-sm text-[#B0B0B0]">
-          {Math.floor(progress)}%
-        </div>
+        <div className="mt-2 font-mono text-sm text-[#B0B0B0]">{progress}%</div>
+        {retrying && (
+          <div className="mt-2 text-xs text-[#707070]">Reconnecting to the server…</div>
+        )}
       </div>
     </GlassCard>
   );

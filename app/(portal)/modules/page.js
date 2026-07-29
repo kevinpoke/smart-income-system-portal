@@ -1,50 +1,57 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { useStore } from "@/lib/store";
 import { useLiveClock } from "@/lib/useLiveClock";
-import { MODULES_META, formatCompactDuration } from "@/lib/mockData";
+import { useHasMounted } from "@/lib/useHasMounted";
+import { formatCompactDuration } from "@/lib/mockData";
 import { GlassCard, SectionTitle, Badge, AccentButton } from "@/components/ui/Primitives";
 import { Lock, PlayCircle, CheckCircle2, X } from "lucide-react";
 
-function ModuleCard({ meta, moduleState, now, onOpen }) {
-  const unlocked =
-    moduleState?.unlockedAt && new Date(moduleState.unlockedAt).getTime() <= now;
-  const viewed = Boolean(moduleState?.viewedAt);
-  const countdown = moduleState?.unlockedAt
-    ? Math.max(0, new Date(moduleState.unlockedAt).getTime() - now)
-    : null;
+// Refinement pass: module lock/unlock/completion state is now entirely
+// server-persisted (see lib/moduleEngine.js, GET /api/modules, POST
+// /api/modules/[key]/complete) -- this page no longer reads or writes
+// the old Zustand `modules` state at all. Every countdown renders FROM a
+// server-provided `unlockAt`/`countdownMs` value; a page refresh, logout/
+// login, or opening the portal on a different device all show the exact
+// same state because it's the same database row every time.
+function ModuleCard({ mod, now, onOpen }) {
+  const unlocked = mod.unlocked;
+  const completed = mod.completed;
+  // Live countdown recomputed every tick from the persisted unlockAt --
+  // never from the countdownMs snapshot alone (that would freeze between
+  // polls). unlockAt is only present once the module's row exists (i.e.
+  // its countdown has actually started); modules further out that are
+  // still awaiting a previous completion show fixed copy instead.
+  const countdown =
+    !unlocked && mod.unlockAt ? Math.max(0, new Date(mod.unlockAt).getTime() - now) : null;
 
   return (
-    <motion.div
-      whileHover={unlocked ? { y: -3 } : {}}
-      className="h-full"
-    >
+    <motion.div whileHover={unlocked ? { y: -3 } : {}} className="h-full">
       <GlassCard
-        className={`flex h-full flex-col overflow-hidden ${
-          unlocked ? "" : "opacity-60"
-        }`}
+        className={`flex h-full flex-col overflow-hidden ${unlocked ? "" : "opacity-60"}`}
       >
         <div className="relative flex aspect-video items-center justify-center bg-gradient-to-br from-[#1c2a33] to-[#0e1a20]">
           {unlocked ? (
             <button
-              onClick={() => onOpen(meta.id)}
+              onClick={() => onOpen(mod.id)}
               className="flex h-14 w-14 items-center justify-center rounded-full bg-[#32B5FF]/20 text-[#32B5FF] backdrop-blur transition hover:bg-[#32B5FF]/30"
             >
               <PlayCircle className="h-8 w-8" />
             </button>
           ) : (
-            <div className="flex flex-col items-center gap-2 text-[#707070]">
+            <div className="flex flex-col items-center gap-2 px-4 text-center text-[#707070]">
               <Lock className="h-8 w-8" />
-              {countdown != null && countdown > 0 && (
+              {countdown != null && countdown > 0 ? (
                 <span className="font-mono text-xs">
                   Unlocks in {formatCompactDuration(countdown)}
                 </span>
-              )}
+              ) : mod.awaitingPrevious ? (
+                <span className="text-xs">Complete previous modules to Unlock this video</span>
+              ) : null}
             </div>
           )}
-          {viewed && (
+          {completed && (
             <div className="absolute right-2 top-2">
               <Badge tone="success">
                 <CheckCircle2 className="mr-1 h-3 w-3" /> Watched
@@ -54,20 +61,18 @@ function ModuleCard({ meta, moduleState, now, onOpen }) {
         </div>
         <div className="flex flex-1 flex-col gap-1 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-[#32B5FF]">
-            Module {meta.id}
+            Module {mod.id}
           </div>
-          <h3 className="text-sm font-bold text-white">{meta.title}</h3>
-          <p className="mt-1 flex-1 text-xs text-[#B0B0B0]">{meta.description}</p>
-          <div className="mt-2 text-[11px] text-[#707070]">
-            Duration: {meta.duration}
-          </div>
+          <h3 className="text-sm font-bold text-white">{mod.title}</h3>
+          <p className="mt-1 flex-1 text-xs text-[#B0B0B0]">{mod.description}</p>
+          <div className="mt-2 text-[11px] text-[#707070]">Duration: {mod.duration}</div>
         </div>
       </GlassCard>
     </motion.div>
   );
 }
 
-function VideoModal({ meta, onClose, onFinish }) {
+function VideoModal({ mod, onClose, onFinish, finishing }) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -83,7 +88,7 @@ function VideoModal({ meta, onClose, onFinish }) {
         className="w-full max-w-2xl overflow-hidden rounded-2xl border border-white/10 bg-[#1E1E1E]"
       >
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-          <h3 className="text-sm font-semibold text-white">{meta.title}</h3>
+          <h3 className="text-sm font-semibold text-white">{mod.title}</h3>
           <button onClick={onClose} className="text-white/60 hover:text-white">
             <X className="h-5 w-5" />
           </button>
@@ -92,17 +97,19 @@ function VideoModal({ meta, onClose, onFinish }) {
           <div className="max-w-sm px-6">
             <PlayCircle className="mx-auto mb-3 h-14 w-14 text-[#32B5FF]" />
             <p className="text-sm text-[#B0B0B0]">
-              [Placeholder video — {meta.duration}] This training walks
-              through &quot;{meta.title}&quot; in detail.
+              [Placeholder video — {mod.duration}] This training walks through &quot;{mod.title}
+              &quot; in detail.
             </p>
           </div>
         </div>
         <div className="flex items-center justify-between p-4">
           <p className="text-xs text-[#707070]">
-            Mark as watched to unlock the next module in 12 hours.
+            {mod.completed
+              ? "Already marked as watched."
+              : "Mark as watched to unlock the next module in 12 hours."}
           </p>
-          <AccentButton onClick={() => onFinish(meta.id)}>
-            Mark as Watched
+          <AccentButton onClick={() => onFinish(mod.id)} disabled={finishing || mod.completed}>
+            {mod.completed ? "Watched" : finishing ? "Saving…" : "Mark as Watched"}
           </AccentButton>
         </div>
       </motion.div>
@@ -111,40 +118,94 @@ function VideoModal({ meta, onClose, onFinish }) {
 }
 
 export default function ModulesPage() {
-  const user = useStore((s) => s.users[s.currentUserId]);
-  const viewModule = useStore((s) => s.viewModule);
   const now = useLiveClock(1000);
+  const hasMounted = useHasMounted();
+  const [modules, setModules] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [openModuleId, setOpenModuleId] = useState(null);
+  const [finishing, setFinishing] = useState(false);
+  const [error, setError] = useState("");
 
-  const openMeta = MODULES_META.find((m) => m.id === openModuleId);
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/modules", { cache: "no-store" });
+      const data = await res.json();
+      setModules(data.modules || []);
+    } catch {
+      setError("Unable to load modules. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // fetch-on-mount, same pattern as lib/useAccount.js.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+  }, [load]);
+
+  const openMod = modules.find((m) => m.id === openModuleId);
+
+  async function handleFinish(moduleId) {
+    setFinishing(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/modules/${moduleId}/complete`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Unable to mark this module as watched.");
+        return;
+      }
+      setModules(data.modules || []);
+      setOpenModuleId(null);
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setFinishing(false);
+    }
+  }
+
+  if (!hasMounted || loading) {
+    return (
+      <div className="space-y-6">
+        <SectionTitle eyebrow="Training" title="Modules" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <SectionTitle
         eyebrow="Training"
         title="Modules"
-        subtitle="Watch each module to unlock the next one, 12 hours after you finish."
+        subtitle={
+          <>
+            Please watch all the videos below to deepen your understanding of StarAtlas and learn
+            how to maximize both your earnings and your contribution to the network.
+            <br />
+            <br />
+            Each module unlocks 12 hours after the previous one. This pacing is designed to
+            prevent users from rushing through the material and to ensure sufficient time to
+            understand each section before continuing. The objective is not simply to complete
+            the videos, but to develop a clear understanding of the business model.
+          </>
+        }
       />
+      {error && (
+        <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>
+      )}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-        {MODULES_META.map((meta) => (
-          <ModuleCard
-            key={meta.id}
-            meta={meta}
-            moduleState={user?.modules?.[meta.id]}
-            now={now}
-            onOpen={setOpenModuleId}
-          />
+        {modules.map((mod) => (
+          <ModuleCard key={mod.id} mod={mod} now={now} onOpen={setOpenModuleId} />
         ))}
       </div>
 
-      {openMeta && (
+      {openMod && (
         <VideoModal
-          meta={openMeta}
+          mod={openMod}
           onClose={() => setOpenModuleId(null)}
-          onFinish={(id) => {
-            viewModule(id);
-            setOpenModuleId(null);
-          }}
+          onFinish={handleFinish}
+          finishing={finishing}
         />
       )}
     </div>

@@ -31,10 +31,10 @@ export async function GET(request, { params }) {
 
   markConversationRead(db, conversationId);
 
-  const messages = getMessages(db, conversationId);
+  const messages = getMessages(db, conversationId, conversation.account_id);
   const tags = getConversationTags(db, conversationId);
   const account = db
-    .prepare(`SELECT id, email, name FROM accounts WHERE id = ?`)
+    .prepare(`SELECT id, email, name, first_name, profile_photo_url FROM accounts WHERE id = ?`)
     .get(conversation.account_id);
 
   return NextResponse.json({
@@ -43,6 +43,8 @@ export async function GET(request, { params }) {
       accountId: conversation.account_id,
       accountEmail: account?.email,
       accountName: account?.name,
+      accountFirstName: account?.first_name,
+      accountPhotoUrl: account?.profile_photo_url,
       tags,
     },
     messages: messages.map((m) => ({
@@ -51,6 +53,8 @@ export async function GET(request, { params }) {
       body: m.body,
       createdAt: m.created_at,
       readAt: m.read_at,
+      senderFirstName: m.senderFirstName,
+      senderPhotoUrl: m.senderPhotoUrl,
     })),
   });
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GlassCard, Badge, GhostButton } from "@/components/ui/Primitives";
+import Avatar from "@/components/ui/Avatar";
 import { Plus, Send, ClipboardCheck, MoreVertical, RefreshCw, MailOpen } from "lucide-react";
 import clsx from "clsx";
 
@@ -402,11 +403,17 @@ export default function AdminChatsPage() {
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-1.5 text-sm font-medium text-white">
+                  <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-white">
+                    <Avatar
+                      photoUrl={c.accountPhotoUrl}
+                      firstName={c.accountFirstName}
+                      email={c.accountEmail}
+                      size={24}
+                    />
                     {c.unread && (
                       <span className="h-2 w-2 flex-shrink-0 rounded-full bg-green-500" title="Unread" />
                     )}
-                    {c.accountName || c.accountEmail}
+                    <span className="truncate">{c.accountFirstName || c.accountName || c.accountEmail}</span>
                   </span>
                   <button
                     onClick={(e) => {
@@ -458,12 +465,22 @@ export default function AdminChatsPage() {
         ) : (
           <>
             <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-              <div>
-                <div className="text-sm font-semibold text-white">
-                  {detail?.conversation?.accountName || selectedConversationMeta?.accountName}
-                </div>
-                <div className="text-xs text-[#707070]">
-                  {detail?.conversation?.accountEmail || selectedConversationMeta?.accountEmail}
+              <div className="flex items-center gap-2.5">
+                <Avatar
+                  photoUrl={detail?.conversation?.accountPhotoUrl || selectedConversationMeta?.accountPhotoUrl}
+                  firstName={detail?.conversation?.accountFirstName || selectedConversationMeta?.accountFirstName}
+                  email={detail?.conversation?.accountEmail || selectedConversationMeta?.accountEmail}
+                  size={32}
+                />
+                <div>
+                  <div className="text-sm font-semibold text-white">
+                    {detail?.conversation?.accountFirstName ||
+                      detail?.conversation?.accountName ||
+                      selectedConversationMeta?.accountName}
+                  </div>
+                  <div className="text-xs text-[#707070]">
+                    {detail?.conversation?.accountEmail || selectedConversationMeta?.accountEmail}
+                  </div>
                 </div>
               </div>
               <TagManager tags={tags} onCreateTag={handleCreateTag} creating={creatingTag} />
@@ -504,29 +521,50 @@ export default function AdminChatsPage() {
                 <div className="mt-20 text-center text-sm text-[#707070]">No messages yet.</div>
               )}
               {detailStatus === "ready" &&
-                (detail?.messages || []).map((m) => (
-                  <div
-                    key={m.id}
-                    className={`flex ${m.senderRole === "admin" ? "justify-end" : "justify-start"}`}
-                  >
+                (detail?.messages || []).map((m) => {
+                  const isAdmin = m.senderRole === "admin";
+                  const displayName = isAdmin
+                    ? m.senderFirstName || "Ashley"
+                    : detail?.conversation?.accountFirstName ||
+                      detail?.conversation?.accountName ||
+                      selectedConversationMeta?.accountName ||
+                      "Customer";
+                  const photoUrl = isAdmin
+                    ? m.senderPhotoUrl
+                    : detail?.conversation?.accountPhotoUrl;
+                  return (
                     <div
-                      className={`max-w-[70%] rounded-2xl px-4 py-2.5 text-sm ${
-                        m.senderRole === "admin"
-                          ? "bg-[#32B5FF] text-[#06121a]"
-                          : "bg-white/10 text-white"
-                      }`}
+                      key={m.id}
+                      className={`flex items-end gap-2 ${isAdmin ? "justify-end" : "justify-start"}`}
                     >
-                      <div>{m.body}</div>
+                      {!isAdmin && (
+                        <Avatar photoUrl={photoUrl} firstName={displayName} size={28} />
+                      )}
                       <div
-                        className={`mt-1 text-[10px] ${
-                          m.senderRole === "admin" ? "text-[#06121a]/60" : "text-[#B0B0B0]"
+                        className={`max-w-[70%] rounded-2xl px-4 py-2.5 text-sm ${
+                          isAdmin ? "bg-[#32B5FF] text-[#06121a]" : "bg-white/10 text-white"
                         }`}
                       >
-                        {formatTime(m.createdAt)}
+                        <div
+                          className={`mb-0.5 text-[10px] font-semibold ${
+                            isAdmin ? "text-[#06121a]/70" : "text-[#32B5FF]"
+                          }`}
+                        >
+                          {displayName}
+                        </div>
+                        <div>{m.body}</div>
+                        <div
+                          className={`mt-1 text-[10px] ${
+                            isAdmin ? "text-[#06121a]/60" : "text-[#B0B0B0]"
+                          }`}
+                        >
+                          {formatTime(m.createdAt)}
+                        </div>
                       </div>
+                      {isAdmin && <Avatar photoUrl={photoUrl} firstName={displayName} size={28} />}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
 
             {sendError && (

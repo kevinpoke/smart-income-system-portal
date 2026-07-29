@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { GlassCard, SectionTitle, FadeIn } from "@/components/ui/Primitives";
+import Avatar from "@/components/ui/Avatar";
+import { useAccount } from "@/lib/useAccount";
 import { Send, LifeBuoy, RefreshCw } from "lucide-react";
 
 function formatTime(iso) {
@@ -13,6 +15,7 @@ function formatTime(iso) {
 }
 
 export default function SupportPage() {
+  const { account } = useAccount();
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState([]);
   const [status, setStatus] = useState("loading"); // loading | ready | error
@@ -163,29 +166,52 @@ export default function SupportPage() {
               </div>
             )}
             {status === "ready" &&
-              messages.map((m) => (
-                <div
-                  key={m.id}
-                  className={`flex ${m.senderRole === "customer" ? "justify-end" : "justify-start"}`}
-                >
+              messages.map((m) => {
+                const isCustomer = m.senderRole === "customer";
+                const displayName = isCustomer
+                  ? account?.firstName || "You"
+                  : m.senderFirstName || "Ashley";
+                const photoUrl = isCustomer ? account?.profilePhotoUrl : m.senderPhotoUrl;
+                return (
                   <div
-                    className={`max-w-[70%] rounded-2xl px-4 py-2.5 text-sm ${
-                      m.senderRole === "customer"
-                        ? "bg-[#32B5FF] text-[#06121a]"
-                        : "bg-white/10 text-white"
-                    }`}
+                    key={m.id}
+                    className={`flex items-end gap-2 ${isCustomer ? "justify-end" : "justify-start"}`}
                   >
-                    <div>{m.body}</div>
+                    {!isCustomer && (
+                      <Avatar photoUrl={photoUrl} firstName={displayName} size={28} />
+                    )}
                     <div
-                      className={`mt-1 text-[10px] ${
-                        m.senderRole === "customer" ? "text-[#06121a]/60" : "text-[#B0B0B0]"
+                      className={`max-w-[70%] rounded-2xl px-4 py-2.5 text-sm ${
+                        isCustomer ? "bg-[#32B5FF] text-[#06121a]" : "bg-white/10 text-white"
                       }`}
                     >
-                      {formatTime(m.createdAt)}
+                      <div
+                        className={`mb-0.5 text-[10px] font-semibold ${
+                          isCustomer ? "text-[#06121a]/70" : "text-[#32B5FF]"
+                        }`}
+                      >
+                        {displayName}
+                      </div>
+                      <div>{m.body}</div>
+                      <div
+                        className={`mt-1 text-[10px] ${
+                          isCustomer ? "text-[#06121a]/60" : "text-[#B0B0B0]"
+                        }`}
+                      >
+                        {formatTime(m.createdAt)}
+                      </div>
                     </div>
+                    {isCustomer && (
+                      <Avatar
+                        photoUrl={photoUrl}
+                        firstName={displayName}
+                        email={account?.email}
+                        size={28}
+                      />
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
           </div>
           {sendError && (
             <div className="border-t border-white/10 px-5 py-2 text-xs text-red-400">

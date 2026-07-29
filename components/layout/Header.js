@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { useAccount } from "@/lib/useAccount";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
 import { PulsingDot } from "@/components/ui/Primitives";
 import { formatCompactDuration } from "@/lib/mockData";
+import Avatar from "@/components/ui/Avatar";
+import ProfileModal from "@/components/layout/ProfileModal";
 
 // WiFi connection indicator is driven entirely by SQLite (via
 // /api/auth/me), never by client-only state. "Connected" now requires
@@ -20,6 +23,7 @@ export default function Header() {
   const { account: user } = useAccount();
   const now = useLiveClock(1000);
   const hasMounted = useHasMounted();
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   const connected = user?.ispStatus === "active" && Boolean(user?.wifiEnabled);
 
@@ -83,9 +87,27 @@ export default function Header() {
       </div>
 
       <div className="hidden text-right sm:block">
-        <div className="text-xs text-[#B0B0B0]">{user?.name}</div>
-        <div className="text-[11px] text-[#707070]">{user?.email}</div>
+        <button
+          type="button"
+          onClick={() => setShowProfileModal(true)}
+          className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition hover:bg-white/5"
+          title="Edit profile"
+        >
+          <div className="text-right">
+            <div className="text-xs text-[#B0B0B0]">{user?.firstName || user?.name}</div>
+            <div className="text-[11px] text-[#707070]">{user?.email}</div>
+          </div>
+          <Avatar
+            photoUrl={user?.profilePhotoUrl}
+            firstName={user?.firstName}
+            email={user?.email}
+            size={36}
+          />
+        </button>
       </div>
+      {showProfileModal && user && (
+        <ProfileModal account={user} onClose={() => setShowProfileModal(false)} />
+      )}
     </header>
   );
 }

@@ -52,7 +52,7 @@ export async function GET() {
 
   const db = getDb();
   const conversation = getOrCreateConversation(db, account.id);
-  const messages = getMessages(db, conversation.id);
+  const messages = getMessages(db, conversation.id, account.id);
   markCustomerRead(db, account.id);
 
   return NextResponse.json({
@@ -62,6 +62,8 @@ export async function GET() {
       senderRole: m.sender_role,
       body: m.body,
       createdAt: m.created_at,
+      senderFirstName: m.senderFirstName,
+      senderPhotoUrl: m.senderPhotoUrl,
     })),
   });
 }
