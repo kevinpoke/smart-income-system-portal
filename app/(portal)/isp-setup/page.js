@@ -16,7 +16,7 @@ import {
 import { CheckCircle2, Clock3, Wifi, ShieldCheck } from "lucide-react";
 
 const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
-const CONNECTION_DURATION_MS = 20000; // exactly 20 seconds, per spec
+const CONNECTION_DURATION_MS = 20000; // exactly 20 seconds, per spec -- must match lib/ispEngine.js
 const PROGRESS_TICK_MS = 100;
 
 function Field({ label, children }) {
@@ -34,59 +34,77 @@ const inputClass =
   "w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder-[#707070] outline-none transition focus:border-[#32B5FF]/60 focus:ring-1 focus:ring-[#32B5FF]/60";
 
 // Renders the 0%->100% "Establishing a Secure Connection..." progress UI.
-// The progress bar itself is purely a smooth, time-based visual (ticks
-// every 100ms over exactly 20 seconds) -- it does NOT represent real
-// backend progress, since /api/isp/authorize completes in a single
-// request. The actual backend call is fired in parallel and its result is
-// awaited separately: onDone() is only invoked once BOTH the visual timer
-// has reached 100% AND the backend call has succeeded, so the UI can
-// never show "complete" before the real operation actually succeeded (if
-// the backend calls fails, an error is shown instead of onDone()).
+// The visual bar is a smooth, time-based display only (ticks every 100ms
+// over exactly 20 seconds) -- it does NOT represent literal backend
+// progress, since /api/isp/authorize/complete completes in a single
+// request. The real backend completion call is fired only once the
+// visual timer reaches 100%, and the SERVER independently re-validates
+// the full 20 seconds has genuinely elapsed (lib/ispEngine.js
+// completeIspAuthorization) before actually activating the account -- so
+// onDone() only ever fires after both the visual timer AND the real
+// backend operation have succeeded (never before).
 //
-// The one-time "kick off the timer + the backend call" side effect lives
-// in a useEffect (not useMemo/inline-during-render) so ref reads/writes,
-// Date.now(), and the mutable backendResult/visualDone closures never run
-// during render itself -- render stays pure per the React Compiler's
-// purity rules, and the actual side effect runs exactly once on mount via
-// the empty dependency array + startedRef guard (which now only ever
-// gets touched from inside the effect, never from render).
-function ConnectionProgress({ onDone, onError }) {
+// `startedAt` is the SERVER-PERSISTED isp_authorize_started_at (never a
+// client-only timer as the source of truth) -- this is what lets a
+// customer refreshing mid-flow resume showing the correct remaining
+// progress instead of restarting at 0% or getting stuck. No earnings/
+// activation can leak from a refresh during this window because the
+// backend never marks isp_status = 'active' until it independently
+// confirms 20 real seconds have elapsed since that persisted timestamp.
+// Duplicate completion requests are prevented both by this component
+// only ever firing one completion call per 100% crossing (firedCompleteRef)
+// and by the server's own idempotent "already active" handling.
+function ConnectionProgress({ startedAt, onDone, onError }) {
   const [progress, setProgress] = useState(0);
-  const startedRef = useRef(false);
+  // `Date.now()` (an impure call) must never run during render/the
+  // initial useRef() evaluation (React's purity rules) -- start the ref
+  // at `null` and resolve the real starting instant inside a useEffect
+  // instead (falling back to "now" only if the server hasn't yet
+  // returned a persisted `startedAt`, which happens for one render at
+  // most immediately after starting a fresh attempt).
+  const startedAtMsRef = useRef(null);
+  const firedCompleteRef = useRef(false);
 
   useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
+    if (startedAt) {
+      startedAtMsRef.current = new Date(startedAt).getTime();
+    } else if (startedAtMsRef.current === null) {
+      startedAtMsRef.current = Date.now();
+    }
+  }, [startedAt]);
 
-    const startedAt = Date.now();
-    let backendResult = null; // 'pending' | 'ok' | 'error'
-    let visualDone = false;
-
-    const backendPromise = fetch("/api/isp/authorize", { method: "POST" })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        backendResult = res.ok ? "ok" : "error";
-        return { ok: res.ok, data };
-      })
-      .catch(() => {
-        backendResult = "error";
-        return { ok: false, data: {} };
-      });
-
+  useEffect(() => {
     const interval = setInterval(() => {
-      const elapsed = Date.now() - startedAt;
-      const pct = Math.min(100, (elapsed / CONNECTION_DURATION_MS) * 100);
+      if (startedAtMsRef.current === null) return; // waiting on the server's persisted startedAt
+      const elapsed = Date.now() - startedAtMsRef.current;
+      const pct = Math.min(100, Math.max(0, (elapsed / CONNECTION_DURATION_MS) * 100));
       setProgress(pct);
-      if (pct >= 100 && !visualDone) {
-        visualDone = true;
+
+      if (pct >= 100 && !firedCompleteRef.current) {
+        firedCompleteRef.current = true;
         clearInterval(interval);
-        backendPromise.then(({ ok, data }) => {
-          if (ok) {
-            onDone();
-          } else {
-            onError(data.error || "Connection failed. Please try again.");
-          }
-        });
+        fetch("/api/isp/authorize/complete", { method: "POST" })
+          .then(async (res) => {
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) {
+              onDone();
+            } else if (data.remainingMs) {
+              // Server disagrees that 20s has elapsed (e.g. clock drift) --
+              // wait out the real remainder it reports, then retry once.
+              setTimeout(() => {
+                fetch("/api/isp/authorize/complete", { method: "POST" })
+                  .then(async (retryRes) => {
+                    const retryData = await retryRes.json().catch(() => ({}));
+                    if (retryRes.ok) onDone();
+                    else onError(retryData.error || "Connection failed. Please try again.");
+                  })
+                  .catch(() => onError("Connection failed. Please try again."));
+              }, data.remainingMs + 200);
+            } else {
+              onError(data.error || "Connection failed. Please try again.");
+            }
+          })
+          .catch(() => onError("Connection failed. Please try again."));
       }
     }, PROGRESS_TICK_MS);
 
@@ -135,9 +153,28 @@ export default function IspSetupPage() {
   });
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [connecting, setConnecting] = useState(false);
+  // `localConnecting`: optimistic UI flag set the instant the customer
+  // clicks "I Approve", before the /api/isp/authorize start response
+  // returns. `connecting` (below) is DERIVED from this OR'd with the
+  // server-persisted isp_authorize_started_at, so a refresh mid-flow
+  // (which resets localConnecting to false on remount) still shows the
+  // progress modal correctly from persisted state -- same pattern as
+  // the Dashboard's WifiToggleCard `reconnecting` derivation.
+  const [localConnecting, setLocalConnecting] = useState(false);
+  const [startingConnection, setStartingConnection] = useState(false);
   const [authorizeError, setAuthorizeError] = useState("");
   const [connectionComplete, setConnectionComplete] = useState(false);
+  // Force-hides the progress modal after a genuine completion failure
+  // even if the server still reports isp_authorize_started_at set (e.g.
+  // a transient error occurred after the 20s window itself elapsed
+  // successfully server-side but the completion request failed) --
+  // cleared the next time the customer starts a fresh attempt.
+  const [errorOverride, setErrorOverride] = useState(false);
+
+  const connecting =
+    !errorOverride &&
+    user?.ispStatus === "approved_awaiting_user" &&
+    (localConnecting || Boolean(user?.ispAuthorizeStartedAt));
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -166,17 +203,35 @@ export default function IspSetupPage() {
     }
   }
 
-  // Prevent double-submission: once the progress UI has started, ignore
-  // further clicks entirely (button disabled + the connecting state gates
-  // out re-entering the flow).
-  function handleStartConnection() {
-    if (connecting) return;
+  // Prevent double-submission: once a start request is in flight or the
+  // flow is already showing, ignore further clicks. Fires
+  // POST /api/isp/authorize (start) in the background to persist
+  // isp_authorize_started_at server-side, same idempotent-start pattern
+  // as the Dashboard's WiFi reconnection flow -- a double-click or a
+  // duplicate request can never reset/extend the 20-second window.
+  async function handleStartConnection() {
+    if (connecting || startingConnection) return;
     setAuthorizeError("");
-    setConnecting(true);
+    setErrorOverride(false);
+    setStartingConnection(true);
+    try {
+      const res = await fetch("/api/isp/authorize", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthorizeError(data.error || "Unable to start authorization.");
+        return;
+      }
+      setLocalConnecting(true);
+      await refetch();
+    } catch {
+      setAuthorizeError("Something went wrong. Please try again.");
+    } finally {
+      setStartingConnection(false);
+    }
   }
 
   async function handleConnectionDone() {
-    setConnecting(false);
+    setLocalConnecting(false);
     setConnectionComplete(true);
     await refetch();
     // Two seconds after progress reaches 100%, update the main portal
@@ -184,14 +239,17 @@ export default function IspSetupPage() {
     // THIS page's own state; notifyAccountChanged() broadcasts to every
     // other mounted useAccount()/useEarningsSummary() consumer (Header's
     // WiFi indicator, Dashboard, Sidebar, etc.) so the whole portal
-    // reflects "connected" together, on the same delayed schedule.
+    // reflects "connected" together, on the same delayed schedule, and
+    // every module that becomes available after ISP completion unlocks
+    // (isp_status === 'active' is read fresh by /api/nodes and friends).
     setTimeout(() => {
       notifyAccountChanged();
     }, 2000);
   }
 
   function handleConnectionError(message) {
-    setConnecting(false);
+    setLocalConnecting(false);
+    setErrorOverride(true);
     setAuthorizeError(message);
   }
 
@@ -237,7 +295,11 @@ export default function IspSetupPage() {
         <div className="space-y-6">
           <SectionTitle eyebrow="ISP Setup" title="Connecting" />
           <FadeIn>
-            <ConnectionProgress onDone={handleConnectionDone} onError={handleConnectionError} />
+            <ConnectionProgress
+              startedAt={user?.ispAuthorizeStartedAt}
+              onDone={handleConnectionDone}
+              onError={handleConnectionError}
+            />
           </FadeIn>
         </div>
       );
@@ -281,10 +343,10 @@ export default function IspSetupPage() {
             )}
             <button
               onClick={handleStartConnection}
-              disabled={connecting}
+              disabled={startingConnection}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-500 px-6 py-3 text-sm font-bold text-[#06121a] shadow-[0_0_20px_rgba(34,197,94,0.4)] transition hover:bg-green-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-300 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {connecting ? "Connecting…" : "I Approve"}
+              {startingConnection ? "Connecting…" : "I Approve"}
             </button>
           </GlassCard>
         </FadeIn>

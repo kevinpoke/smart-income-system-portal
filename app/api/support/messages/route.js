@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getCurrentAccountRaw } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
-import { getOrCreateConversation, getMessages, postMessage } from "@/lib/supportEngine";
+import { getOrCreateConversation, getMessages, postMessage, markCustomerRead } from "@/lib/supportEngine";
 
 // Customer's own support conversation. Always scoped to the authenticated
 // session's account id -- there is no conversation/account id parameter
@@ -35,6 +35,15 @@ function recordAttempt(accountId) {
   }
 }
 
+// Portal reliability pass: GET now also clears the persistent
+// customer-facing unread indicator (see lib/supportEngine.js
+// getCustomerUnread/markCustomerRead) -- per spec, the badge on the
+// Support nav tab "must be cleared only when the customer opens or taps
+// the Support tab/page," and loading this route IS that action (the
+// Support page's own useEffect calls this on mount). This route is also
+// polled every few seconds while the Support page stays open (see
+// app/(portal)/support/page.js) so an admin reply appears automatically
+// without a hard refresh.
 export async function GET() {
   const account = await getCurrentAccountRaw();
   if (!account) {
@@ -44,6 +53,7 @@ export async function GET() {
   const db = getDb();
   const conversation = getOrCreateConversation(db, account.id);
   const messages = getMessages(db, conversation.id);
+  markCustomerRead(db, account.id);
 
   return NextResponse.json({
     conversationId: conversation.id,

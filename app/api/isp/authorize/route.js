@@ -2,20 +2,23 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getCurrentAccountRaw, toPublicAccount } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
-import { addOwnedNode } from "@/lib/ownedNodes";
-import { generateId } from "@/lib/auth-crypto";
+import { startIspAuthorization, getIspAuthorizeStatus } from "@/lib/ispEngine";
 
 // Customer clicks "I Approve" while isp_status = approved_awaiting_user.
-// This is the ONLY action that may start the Node/earnings lifecycle --
-// admin approval alone (isp/admin/approve) must never reach isp_status =
-// 'active'. Per Phase 2 scope, this route sets the node-activation
-// timestamps and flips isp_status to 'active'.
+// This begins (or resumes) the 20-second "Establishing a Secure
+// Connection..." authorization window -- it does NOT itself activate the
+// account. Only POST /api/isp/authorize/complete may flip isp_status to
+// 'active', and only once the server independently confirms the full 20
+// seconds has genuinely elapsed since the persisted
+// isp_authorize_started_at (see lib/ispEngine.js). Admin approval alone
+// (app/api/admin/isp/[id]/approve) must never reach isp_status =
+// 'active' -- only the customer's own "I Approve" -> completed
+// authorization window may do that.
 //
-// Phase 5 additions: this is also the moment a customer's first owned
-// Node record is created (lib/ownedNodes.js -- Dashboard "Your Nodes")
-// and their WiFi toggle is initialized to ON with wifi_state_since set to
-// the same activation timestamp, so live earnings accrual and the
-// WiFi-connected UI state both start from exactly this instant.
+// Idempotent/concurrency-safe: calling this while authorization is
+// already in progress returns the EXISTING start timestamp rather than
+// resetting the 20-second clock, so a double-click or a page refresh
+// that re-fires this call can never extend or restart the window.
 export async function POST(request) {
   if (!isSameOrigin(request)) {
     return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
@@ -27,46 +30,27 @@ export async function POST(request) {
   }
 
   const db = getDb();
+  const result = startIspAuthorization(db, account.id);
 
-  let updated;
-  db.exec("BEGIN");
-  try {
-    const fresh = db.prepare(`SELECT * FROM accounts WHERE id = ?`).get(account.id);
-
-    if (fresh.isp_status !== "approved_awaiting_user") {
-      db.exec("ROLLBACK");
-      // Duplicate authorization or out-of-order call: reject explicitly
-      // rather than silently no-op, so the client can surface a clear error.
-      return NextResponse.json(
-        { error: "Your ISP setup is not currently awaiting authorization." },
-        { status: 409 }
-      );
-    }
-
-    const now = new Date().toISOString();
-
-    db.prepare(
-      `UPDATE accounts
-       SET user_authorized_at = COALESCE(user_authorized_at, ?),
-           node_connected_at = COALESCE(node_connected_at, ?),
-           wifi_enabled = 1,
-           wifi_state_since = COALESCE(wifi_state_since, ?),
-           isp_status = 'active'
-       WHERE id = ?`
-    ).run(now, now, now, account.id);
-
-    db.prepare(
-      `INSERT INTO wifi_events (id, account_id, action, created_at) VALUES (?, ?, 'on', ?)`
-    ).run(generateId("wifiev"), account.id, now);
-
-    addOwnedNode(db, account.id);
-
-    db.exec("COMMIT");
-    updated = db.prepare(`SELECT * FROM accounts WHERE id = ?`).get(account.id);
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
+  if (!result.ok) {
+    const messages = {
+      not_awaiting_authorization: "Your ISP setup is not currently awaiting authorization.",
+      not_found: "Account not found.",
+    };
+    return NextResponse.json(
+      { error: messages[result.reason] || "Unable to start authorization." },
+      { status: 409 }
+    );
   }
 
-  return NextResponse.json({ ok: true, account: toPublicAccount(updated) });
+  const fresh = db.prepare(`SELECT * FROM accounts WHERE id = ?`).get(account.id);
+
+  return NextResponse.json({
+    ok: true,
+    startedAt: result.startedAt,
+    durationMs: result.durationMs,
+    readyAt: result.readyAt,
+    status: getIspAuthorizeStatus(fresh),
+    account: toPublicAccount(fresh),
+  });
 }

@@ -5,7 +5,14 @@ import { useEarningsSummary } from "@/lib/useEarningsSummary";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
 import { formatCountdownParts } from "@/lib/mockData";
-import { GlassCard, SectionTitle, AccentButton, FadeIn, Badge } from "@/components/ui/Primitives";
+import {
+  GlassCard,
+  SectionTitle,
+  AccentButton,
+  FadeIn,
+  Badge,
+  LocationRequiredCard,
+} from "@/components/ui/Primitives";
 import { motion, AnimatePresence } from "framer-motion";
 import { Banknote, CheckCircle2, Clock } from "lucide-react";
 
@@ -31,6 +38,7 @@ export default function WithdrawalsPage() {
   const hasMounted = useHasMounted();
 
   const [bank, setBank] = useState(null);
+  const [locked, setLocked] = useState(true);
   const [loadingBank, setLoadingBank] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -43,9 +51,15 @@ export default function WithdrawalsPage() {
       try {
         const res = await fetch("/api/withdrawals/bank", { cache: "no-store" });
         const data = await res.json();
-        if (!cancelled) setBank(data.bank || null);
+        if (!cancelled) {
+          setBank(data.bank || null);
+          setLocked(Boolean(data.locked));
+        }
       } catch {
-        if (!cancelled) setBank(null);
+        if (!cancelled) {
+          setBank(null);
+          setLocked(true);
+        }
       } finally {
         if (!cancelled) setLoadingBank(false);
       }
@@ -92,6 +106,19 @@ export default function WithdrawalsPage() {
     payoutMs = Math.max(0, new Date(summary.payoutTargetAt).getTime() - now);
   }
   const payoutParts = payoutMs != null ? formatCountdownParts(payoutMs) : null;
+
+  if (!loadingBank && locked) {
+    return (
+      <div className="space-y-6">
+        <SectionTitle
+          eyebrow="Cash Out"
+          title="Withdrawals"
+          subtitle="Add your bank information to receive your earnings."
+        />
+        <LocationRequiredCard body="Complete your ISP Setup to unlock Withdrawals." />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

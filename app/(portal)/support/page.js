@@ -20,6 +20,12 @@ export default function SupportPage() {
   const [sendError, setSendError] = useState("");
   const scrollRef = useRef(null);
 
+  // Portal reliability pass: silent background refresh used by the
+  // polling interval below -- unlike `load()`, this never flips `status`
+  // back to "loading" (which would blank the thread and disrupt reading/
+  // scrolling) and never clobbers messages on a transient network error.
+  const pollRef = useRef(null);
+
   const load = useCallback(async () => {
     setStatus((s) => (s === "ready" ? s : "loading"));
     try {
@@ -33,11 +39,47 @@ export default function SupportPage() {
     }
   }, []);
 
+  const silentRefresh = useCallback(async () => {
+    try {
+      const res = await fetch("/api/support/messages", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      // Merge rather than blind-replace to avoid visibly discarding an
+      // optimistic pending message that hasn't been reconciled by the
+      // in-flight send yet, and to avoid any duplicate keys -- server
+      // data is always authoritative once it arrives, but a pending-*
+      // optimistic row is kept if the server list doesn't yet include a
+      // message with the same body sent within the last few seconds.
+      setMessages((prev) => {
+        const serverMessages = data.messages || [];
+        const stillPending = prev.filter(
+          (m) =>
+            typeof m.id === "string" &&
+            m.id.startsWith("pending-") &&
+            !serverMessages.some((sm) => sm.body === m.body && sm.senderRole === "customer")
+        );
+        return [...serverMessages, ...stillPending];
+      });
+    } catch {
+      // keep the last known messages on a transient network error
+    }
+  }, []);
+
   useEffect(() => {
     // fetch-on-mount, same pattern as lib/useAccount.js.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial
     load();
   }, [load]);
+
+  // Portal reliability pass: poll for new messages (admin replies) while
+  // this page is open, per spec ("Poll for new messages while the
+  // Support page is open... a polling interval around 3-5 seconds is
+  // acceptable"). Uses the silent variant so an in-progress read/scroll
+  // isn't disrupted by a "Loading..." flash on every tick.
+  useEffect(() => {
+    pollRef.current = setInterval(silentRefresh, 4000);
+    return () => clearInterval(pollRef.current);
+  }, [silentRefresh]);
 
   useEffect(() => {
     if (scrollRef.current) {

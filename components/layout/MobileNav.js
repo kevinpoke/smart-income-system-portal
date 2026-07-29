@@ -14,6 +14,7 @@ import {
   LifeBuoy,
   LogOut,
 } from "lucide-react";
+import { useSupportUnread } from "@/lib/useSupportUnread";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: LayoutDashboard },
@@ -29,6 +30,9 @@ export default function MobileNav() {
   const pathname = usePathname();
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
+  // Portal reliability pass: same persistent, server-polled Support
+  // unread indicator as the desktop Sidebar (see lib/useSupportUnread.js).
+  const { unread: supportUnread } = useSupportUnread();
 
   // Same logout behavior as the desktop Sidebar: POST to the real logout
   // endpoint (server session is the source of truth), guard against
@@ -54,6 +58,7 @@ export default function MobileNav() {
       {NAV_ITEMS.map((item) => {
         const active = pathname === item.href;
         const Icon = item.icon;
+        const showSupportBadge = item.href === "/support" && supportUnread;
         return (
           <Link
             key={item.href}
@@ -63,7 +68,16 @@ export default function MobileNav() {
               active ? "text-[#32B5FF]" : "text-[#707070]"
             )}
           >
-            <Icon className="h-5 w-5" />
+            <span className="relative inline-flex">
+              <Icon className="h-5 w-5" />
+              {showSupportBadge && (
+                <span
+                  className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-[#32B5FF] shadow-[0_0_6px_rgba(50,181,255,0.8)]"
+                  aria-label="Unread support reply"
+                  title="Unread support reply"
+                />
+              )}
+            </span>
             {item.label}
           </Link>
         );

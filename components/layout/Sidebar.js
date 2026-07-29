@@ -17,6 +17,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { useAccount } from "@/lib/useAccount";
+import { useSupportUnread } from "@/lib/useSupportUnread";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -39,6 +40,11 @@ export default function Sidebar() {
   // lib/session.js requireAdmin() for every admin API route.
   const { account } = useAccount();
   const isAdmin = account?.role === "admin";
+  // Portal reliability pass: persistent Support unread indicator (see
+  // lib/useSupportUnread.js) -- server-backed, polls independently of
+  // whatever page is currently mounted, and only clears when the
+  // customer actually opens the Support page.
+  const { unread: supportUnread } = useSupportUnread();
 
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -76,6 +82,7 @@ export default function Sidebar() {
         {NAV_ITEMS.map((item) => {
           const active = pathname === item.href;
           const Icon = item.icon;
+          const showSupportBadge = item.href === "/support" && supportUnread;
           return (
             <Link
               key={item.href}
@@ -87,12 +94,21 @@ export default function Sidebar() {
                   : "text-[#B0B0B0] hover:bg-white/5 hover:text-white"
               )}
             >
-              <Icon
-                className={clsx(
-                  "h-[18px] w-[18px] transition-colors",
-                  active ? "text-[#32B5FF]" : "text-[#B0B0B0] group-hover:text-white"
+              <span className="relative inline-flex">
+                <Icon
+                  className={clsx(
+                    "h-[18px] w-[18px] transition-colors",
+                    active ? "text-[#32B5FF]" : "text-[#B0B0B0] group-hover:text-white"
+                  )}
+                />
+                {showSupportBadge && (
+                  <span
+                    className="absolute -right-1 -top-1 h-2 w-2 animate-pulse rounded-full bg-[#32B5FF] shadow-[0_0_6px_rgba(50,181,255,0.8)]"
+                    aria-label="Unread support reply"
+                    title="Unread support reply"
+                  />
                 )}
-              />
+              </span>
               {item.label}
             </Link>
           );

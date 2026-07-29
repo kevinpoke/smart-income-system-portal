@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GlassCard, Badge, GhostButton } from "@/components/ui/Primitives";
 import { Plus, Send, ClipboardCheck, MoreVertical, RefreshCw, MailOpen } from "lucide-react";
 import clsx from "clsx";
@@ -84,6 +84,22 @@ export default function AdminChatsPage() {
 
   const [contextMenu, setContextMenu] = useState(null); // { id, x, y }
 
+  // Portal reliability pass: keep the latest selectedId/detail message
+  // count in refs so the polling intervals below (which capture these in
+  // closures created once per effect run) always compare against the
+  // CURRENT selection/thread length rather than a stale snapshot from
+  // when the interval was created -- this avoids needing to restart the
+  // interval on every selection change while still detecting new
+  // messages correctly.
+  const selectedIdRef = useRef(null);
+  const detailMessageCountRef = useRef(0);
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+  useEffect(() => {
+    detailMessageCountRef.current = (detail?.messages || []).length;
+  }, [detail]);
+
   const loadConversations = useCallback(async () => {
     setListStatus((s) => (s === "ready" ? s : "loading"));
     try {
@@ -99,6 +115,27 @@ export default function AdminChatsPage() {
       setListStatus("ready");
     } catch {
       setListStatus("error");
+    }
+  }, [filter, selectedTagIds]);
+
+  // Portal reliability pass: silent variant used by the polling interval
+  // -- never flips listStatus back to "loading" (which would blank the
+  // conversation list and disrupt browsing) and never clobbers state on
+  // a transient network error. Preserves whatever filter/tag selection
+  // is currently active since it reads the same params as loadConversations.
+  const silentRefreshList = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      params.set("filter", filter);
+      if (selectedTagIds.length > 0) params.set("tags", selectedTagIds.join(","));
+      const res = await fetch(`/api/admin/support/conversations?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setConversations(data.conversations || []);
+    } catch {
+      // keep the last known list on a transient network error
     }
   }, [filter, selectedTagIds]);
 
@@ -124,6 +161,18 @@ export default function AdminChatsPage() {
     loadTags();
   }, [loadTags]);
 
+  // Portal reliability pass: poll the conversation list every ~4s so a
+  // NEW customer message (a new conversation, or a bump to the top of an
+  // existing one) appears in the admin inbox automatically -- per spec,
+  // "no hard refresh should be required" and newest-activity sorting/
+  // unread indicators/timestamps must be preserved (they already are,
+  // since silentRefreshList re-fetches through the exact same
+  // listConversationsForAdmin() query the initial load uses).
+  useEffect(() => {
+    const id = setInterval(silentRefreshList, 4000);
+    return () => clearInterval(id);
+  }, [silentRefreshList]);
+
   const loadDetail = useCallback(
     async (conversationId) => {
       setDetailStatus("loading");
@@ -144,6 +193,45 @@ export default function AdminChatsPage() {
     },
     [loadConversations]
   );
+
+  // Portal reliability pass: silently polls the currently-open thread's
+  // messages every ~4s so a new customer message arriving WHILE the
+  // admin already has that conversation open appears without needing to
+  // reselect it. Deliberately does NOT call the GET-marks-read route
+  // logic differently than loadDetail -- it's the same endpoint, so a new
+  // customer message is marked read the moment this poll picks it up
+  // (matching "opening a conversation marks incoming customer messages as
+  // read" -- the admin has the thread open, so that's correct). Skips
+  // silently if no conversation is selected, and never disrupts the
+  // scroll position via a "Loading..." flash on every tick (only updates
+  // `detail`, not `detailStatus`, unless the fetch fails while nothing
+  // has loaded yet).
+  const silentRefreshDetail = useCallback(async () => {
+    const currentId = selectedIdRef.current;
+    if (!currentId) return;
+    try {
+      const res = await fetch(`/api/admin/support/conversations/${currentId}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const newCount = (data.messages || []).length;
+      setDetail(data);
+      // Only refresh the list (to clear the unread dot / bump ordering)
+      // when the thread actually grew -- avoids an extra request on
+      // every single poll tick when nothing changed.
+      if (newCount !== detailMessageCountRef.current) {
+        loadConversations();
+      }
+    } catch {
+      // keep the last known detail on a transient network error
+    }
+  }, [loadConversations]);
+
+  useEffect(() => {
+    const id = setInterval(silentRefreshDetail, 4000);
+    return () => clearInterval(id);
+  }, [silentRefreshDetail]);
 
   function selectConversation(id) {
     setSelectedId(id);

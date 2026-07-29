@@ -10,6 +10,15 @@ import { MapPin, TrendingUp, Info } from "lucide-react";
 // rows are deterministic per account+month from /api/payouts/estimates.
 // Nothing here reads from or writes to Zustand/localStorage, and nothing
 // here touches the earnings ledger.
+//
+// Portal reliability pass: the locked/unlocked decision now comes
+// directly from the server's `locked` field (which itself goes through
+// the shared lib/moduleAccess.js hasModuleAccess() helper -- ISP active
+// OR the admin's per-customer modules_unlocked override) instead of
+// inferring "locked" purely from whether a location string is present.
+// This is what makes an admin-unlocked customer who never completed ISP
+// Setup actually see this page instead of staying stuck on the
+// "Location Required" card.
 export default function PayoutsPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -22,7 +31,7 @@ export default function PayoutsPage() {
         const json = await res.json();
         if (!cancelled) setData(json);
       } catch {
-        if (!cancelled) setData({ rows: [], location: null });
+        if (!cancelled) setData({ locked: true, rows: [], location: null });
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -34,6 +43,7 @@ export default function PayoutsPage() {
 
   const rows = data?.rows || [];
   const location = data?.location || null;
+  const locked = Boolean(data?.locked);
 
   const average = rows.length
     ? rows.reduce((sum, r) => sum + centsToDollars(r.amountCents), 0) / rows.length
@@ -47,11 +57,11 @@ export default function PayoutsPage() {
         subtitle="See what nodes near you have historically earned."
       />
 
-      {!loading && !location && (
+      {!loading && locked && (
         <LocationRequiredCard body="Complete your ISP Setup to see payout estimates for your area." />
       )}
 
-      {(loading || location) && (
+      {(loading || !locked) && (
         <FadeIn>
           <GlassCard className="flex flex-col items-start justify-between gap-3 p-5 sm:flex-row sm:items-center">
             <div className="flex items-center gap-3">
@@ -60,14 +70,14 @@ export default function PayoutsPage() {
               </div>
               <div>
                 <div className="text-sm font-semibold text-white">
-                  {loading ? "Loading location…" : `Average Payout for ${location}`}
+                  {loading ? "Loading location…" : `Average Payout for ${location || "Your Area"}`}
                 </div>
                 <div className="text-xs text-[#B0B0B0]">
                   Based on the last 12 months of node activity in your area.
                 </div>
               </div>
             </div>
-            {location && (
+            {!loading && (
               <div className="flex items-center gap-2 font-mono text-2xl font-bold text-[#32B5FF]">
                 <TrendingUp className="h-5 w-5" />
                 {formatCurrency(average)}
@@ -77,7 +87,7 @@ export default function PayoutsPage() {
         </FadeIn>
       )}
 
-      {location && (
+      {!locked && (
         <FadeIn delay={0.05}>
           <GlassCard className="overflow-hidden">
             <div className="border-b border-white/10 px-5 py-4">
@@ -108,7 +118,7 @@ export default function PayoutsPage() {
                       className="border-b border-white/5 text-[#B0B0B0] transition hover:bg-white/[0.03]"
                     >
                       <td className="px-5 py-3 text-white">{row.monthLabel}</td>
-                      <td className="px-5 py-3">{location}</td>
+                      <td className="px-5 py-3">{location || "Your Area"}</td>
                       <td className="px-5 py-3 text-right font-mono text-white">
                         {formatCurrency(centsToDollars(row.amountCents))}
                       </td>
