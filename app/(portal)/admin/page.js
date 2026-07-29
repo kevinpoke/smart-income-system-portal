@@ -13,12 +13,12 @@ import {
   Sparkles,
   Search,
   X,
-  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
   ChevronLeft,
   ChevronRight,
   Send,
   UserPlus,
-  Filter,
 } from "lucide-react";
 
 const ISP_STATUS_LABELS = {
@@ -434,15 +434,15 @@ function AccountRow({
   selectable,
   selected,
   onToggleSelect,
+  onOpenAddBalance,
+  onOpenUnlockModules,
+  unlockMessage,
 }) {
   const [emailDraft, setEmailDraft] = useState(account.email);
   const [editingEmail, setEditingEmail] = useState(false);
   const [savingEmail, setSavingEmail] = useState(false);
   const [emailError, setEmailError] = useState("");
   const [togglingDisable, setTogglingDisable] = useState(false);
-  const [showBalanceModal, setShowBalanceModal] = useState(false);
-  const [showUnlockModal, setShowUnlockModal] = useState(false);
-  const [unlockMessage, setUnlockMessage] = useState("");
 
   const disabled = account.accountStatus === "disabled";
   const ispMeta = ISP_STATUS_LABELS[account.ispStatus] || ISP_STATUS_LABELS.not_started;
@@ -515,7 +515,7 @@ function AccountRow({
   return (
     <tr className="border-b border-white/5 align-top text-[#B0B0B0] hover:bg-white/[0.03]">
       {selectable && (
-        <td className="px-4 py-3">
+        <td className="w-8 px-2 py-3">
           <input
             type="checkbox"
             checked={selected}
@@ -583,66 +583,59 @@ function AccountRow({
         </Badge>
       </td>
       <td className="px-4 py-3">
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex items-center gap-1.5">
           {account.role === "customer" && (
             <>
               <button
                 onClick={handleToggleDisable}
                 disabled={togglingDisable}
-                className={`flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold disabled:opacity-50 ${
+                aria-label={disabled ? `Enable account ${account.email}` : `Disable account ${account.email}`}
+                title={disabled ? "Enable Account" : "Disable Account"}
+                className={`group relative flex h-8 w-8 items-center justify-center rounded-lg disabled:opacity-50 ${
                   disabled
                     ? "bg-green-500/15 text-green-400 hover:bg-green-500/25"
                     : "bg-red-500/15 text-red-400 hover:bg-red-500/25"
                 }`}
               >
                 {disabled ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
-                {disabled ? "Re-enable" : "Disable"}
+                <span className="pointer-events-none absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                  {disabled ? "Enable Account" : "Disable Account"}
+                </span>
               </button>
               <button
-                onClick={() => setShowBalanceModal(true)}
-                className="flex items-center gap-1 rounded-lg bg-[#32B5FF]/15 px-2 py-1.5 text-xs font-semibold text-[#32B5FF] hover:bg-[#32B5FF]/25"
+                onClick={() => onOpenAddBalance(account)}
+                aria-label={`Add balance for ${account.email}`}
+                title="Add Balance"
+                className="group relative flex h-8 w-8 items-center justify-center rounded-lg bg-[#32B5FF]/15 text-[#32B5FF] hover:bg-[#32B5FF]/25"
               >
-                <DollarSign className="h-3.5 w-3.5" /> Balance
+                <DollarSign className="h-3.5 w-3.5" />
+                <span className="pointer-events-none absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                  Add Balance
+                </span>
               </button>
               <button
-                onClick={() => setShowUnlockModal(true)}
-                className="flex items-center gap-1 rounded-lg bg-yellow-500/15 px-2 py-1.5 text-xs font-semibold text-yellow-400 hover:bg-yellow-500/25"
+                onClick={() => onOpenUnlockModules(account)}
+                aria-label={`Unlock modules for ${account.email}`}
+                title="Unlock Modules"
+                className="group relative flex h-8 w-8 items-center justify-center rounded-lg bg-yellow-500/15 text-yellow-400 hover:bg-yellow-500/25"
               >
-                <Sparkles className="h-3.5 w-3.5" /> Unlock All Modules
+                <Sparkles className="h-3.5 w-3.5" />
+                <span className="pointer-events-none absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                  Unlock Modules
+                </span>
               </button>
             </>
           )}
         </div>
         {unlockMessage && <div className="mt-1 text-[10px] text-green-400">{unlockMessage}</div>}
       </td>
-      {showBalanceModal && (
-        <BalanceModal
-          account={account}
-          onClose={() => setShowBalanceModal(false)}
-          onSubmitted={() => {
-            setShowBalanceModal(false);
-            onChanged();
-          }}
-        />
-      )}
-      {showUnlockModal && (
-        <UnlockAllModal
-          account={account}
-          onClose={() => setShowUnlockModal(false)}
-          onSubmitted={(message) => {
-            setShowUnlockModal(false);
-            setUnlockMessage(message || "Modules unlocked.");
-            onChanged();
-          }}
-        />
-      )}
     </tr>
   );
 }
 
 // Debounce hook: returns `value` only after it has stopped changing for
-// `delayMs` -- used for the User Management search box and dollar-amount
-// filters so typing doesn't refetch on every keystroke.
+// `delayMs` -- used for the User Management search box so typing
+// doesn't refetch on every keystroke.
 function useDebouncedValue(value, delayMs) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -652,71 +645,48 @@ function useDebouncedValue(value, delayMs) {
   return debounced;
 }
 
-const DEFAULT_FILTERS = {
-  status: "all",
-  isp: "all",
-  balanceMin: "",
-  balanceMax: "",
-  joinedFrom: "",
-  joinedTo: "",
-  lastLogin: "all",
-  lastLoginFrom: "",
-  lastLoginTo: "",
-  withdraw: "all",
-  waitlist: "all",
-};
-
-function isFilterActive(filters, key) {
-  if (key === "status") return filters.status !== "all";
-  if (key === "isp") return filters.isp !== "all";
-  if (key === "balance") return Boolean(filters.balanceMin || filters.balanceMax);
-  if (key === "joined") return Boolean(filters.joinedFrom || filters.joinedTo);
-  if (key === "lastLogin") return filters.lastLogin !== "all";
-  if (key === "withdraw") return filters.withdraw !== "all";
-  if (key === "waitlist") return filters.waitlist !== "all";
-  return false;
-}
-
-// Small filter-popover wrapper shared by every column filter button --
-// shows a visible highlighted state on the trigger button when that
-// column's filter is active (per spec: "Show a visible indicator when a
-// column filter is active").
-function ColumnFilter({ label, active, children }) {
-  const [open, setOpen] = useState(false);
+// User Management redesign: shared sortable column header. Renders the
+// label as a clickable button with a visible ascending/descending
+// indicator (per spec: "show a visible ascending/descending indicator")
+// -- clicking a column that's already the active sort flips direction;
+// clicking a different column switches to it starting at `defaultDir`.
+function SortableHeader({ column, label, sortBy, sortDir, onSort, defaultDir = "desc", align }) {
+  const active = sortBy === column;
   return (
-    <span className="relative inline-block">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        title={`Filter ${label}`}
-        className={`ml-1 inline-flex items-center rounded p-0.5 ${
-          active ? "text-[#32B5FF]" : "text-[#707070] hover:text-white"
-        }`}
-      >
-        <Filter className="h-3 w-3" fill={active ? "currentColor" : "none"} />
-      </button>
-      {open && (
-        <div
-          className="absolute left-0 top-full z-30 mt-1 w-56 rounded-xl border border-white/10 bg-[#1E1E1E] p-3 shadow-2xl"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {children}
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="mt-2 w-full rounded-lg bg-white/5 px-2 py-1.5 text-[11px] font-semibold text-[#B0B0B0] hover:bg-white/10"
-          >
-            Done
-          </button>
-        </div>
+    <button
+      type="button"
+      onClick={() => onSort(column, defaultDir)}
+      className={`inline-flex items-center gap-1 whitespace-nowrap font-semibold uppercase tracking-wide transition-colors ${
+        align === "right" ? "flex-row-reverse" : ""
+      } ${active ? "text-[#32B5FF]" : "text-[#707070] hover:text-white"}`}
+      title={`Sort by ${label}`}
+    >
+      {label}
+      {active ? (
+        sortDir === "asc" ? (
+          <ArrowUp className="h-3 w-3" />
+        ) : (
+          <ArrowDown className="h-3 w-3" />
+        )
+      ) : (
+        <ArrowUpDownGhost />
       )}
-    </span>
+    </button>
   );
 }
 
-const filterInputClass =
-  "w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF]";
-const filterSelectClass = filterInputClass;
+// Faint, always-present up/down glyph shown on inactive sortable
+// columns so every column visibly affords sorting even before it's
+// clicked (a11y + discoverability), without competing visually with the
+// bright active-column indicator.
+function ArrowUpDownGhost() {
+  return (
+    <span className="flex flex-col leading-none text-[#707070]/40">
+      <ArrowUp className="h-2.5 w-2.5" />
+      <ArrowDown className="-mt-1 h-2.5 w-2.5" />
+    </span>
+  );
+}
 
 export default function AdminUsersPage() {
   const { account: currentAdmin } = useAccount();
@@ -729,36 +699,32 @@ export default function AdminUsersPage() {
 
   const [searchInput, setSearchInput] = useState("");
   const searchTerm = useDebouncedValue(searchInput, 300);
-  const [sortBy, setSortBy] = useState("createdAt");
+  // User Management redesign: per-column FILTERS replaced entirely by
+  // per-column SORTING -- "joined" (newest-first) is the default, same
+  // as the old default filter-free view.
+  const [sortBy, setSortBy] = useState("joined");
   const [sortDir, setSortDir] = useState("desc");
   const [page, setPage] = useState(1);
   const pageSize = 30;
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
 
-  const [filters, setFilters] = useState(DEFAULT_FILTERS);
-  const debouncedBalanceMin = useDebouncedValue(filters.balanceMin, 400);
-  const debouncedBalanceMax = useDebouncedValue(filters.balanceMax, 400);
-
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [showBroadcastModal, setShowBroadcastModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
-
-  function setFilter(key, value) {
-    setFilters((f) => ({ ...f, [key]: value }));
-  }
-
-  function clearAllFilters() {
-    setFilters(DEFAULT_FILTERS);
-  }
-
-  const anyFilterActive = useMemo(
-    () =>
-      ["status", "isp", "balance", "joined", "lastLogin", "withdraw", "waitlist"].some((k) =>
-        isFilterActive(filters, k)
-      ),
-    [filters]
-  );
+  // Hydration fix: these two modals used to be rendered directly inside
+  // the <tr> returned by AccountRow (invalid HTML -- a <tr> may only
+  // contain <td>/<th>). State is lifted here to the page level instead;
+  // AccountRow now only calls onOpenAddBalance(account)/
+  // onOpenUnlockModules(account) and both modals are rendered once,
+  // after the closing </table>, same pattern already used for
+  // BroadcastModal/CreateUserModal.
+  const [balanceModalAccount, setBalanceModalAccount] = useState(null);
+  const [unlockModalAccount, setUnlockModalAccount] = useState(null);
+  // Per-account "Modules unlocked." confirmation text shown inline in
+  // that account's row -- keyed by account id so each row keeps its own
+  // message independently, matching the previous per-row local state.
+  const [unlockMessages, setUnlockMessages] = useState({});
 
   async function loadAccounts() {
     setLoadingAccounts(true);
@@ -769,19 +735,6 @@ export default function AdminUsersPage() {
       params.set("sortDir", sortDir);
       params.set("page", String(page));
       params.set("pageSize", String(pageSize));
-      if (filters.status !== "all") params.set("status", filters.status);
-      if (filters.isp !== "all") params.set("isp", filters.isp);
-      if (debouncedBalanceMin) params.set("balanceMin", debouncedBalanceMin);
-      if (debouncedBalanceMax) params.set("balanceMax", debouncedBalanceMax);
-      if (filters.joinedFrom) params.set("joinedFrom", filters.joinedFrom);
-      if (filters.joinedTo) params.set("joinedTo", filters.joinedTo);
-      if (filters.lastLogin !== "all") params.set("lastLogin", filters.lastLogin);
-      if (filters.lastLogin === "range") {
-        if (filters.lastLoginFrom) params.set("lastLoginFrom", filters.lastLoginFrom);
-        if (filters.lastLoginTo) params.set("lastLoginTo", filters.lastLoginTo);
-      }
-      if (filters.withdraw !== "all") params.set("withdraw", filters.withdraw);
-      if (filters.waitlist !== "all") params.set("waitlist", filters.waitlist);
 
       const res = await fetch(`/api/admin/accounts?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
@@ -797,52 +750,22 @@ export default function AdminUsersPage() {
   }
 
   useEffect(() => {
-    // fetch-on-mount + whenever a search/sort/page/filter param changes,
-    // same pattern as lib/useAccount.js.
+    // fetch-on-mount + whenever a search/sort/page param changes, same
+    // pattern as lib/useAccount.js.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial
     loadAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    searchTerm,
-    sortBy,
-    sortDir,
-    page,
-    filters.status,
-    filters.isp,
-    debouncedBalanceMin,
-    debouncedBalanceMax,
-    filters.joinedFrom,
-    filters.joinedTo,
-    filters.lastLogin,
-    filters.lastLoginFrom,
-    filters.lastLoginTo,
-    filters.withdraw,
-    filters.waitlist,
-  ]);
+  }, [searchTerm, sortBy, sortDir, page]);
 
-  // Reset to page 1 whenever search/sort/filters change (a stale page
-  // number from a previous, larger result set could otherwise land past
-  // the end of a new, smaller filtered set). Filters PERSIST across this
-  // reset and across sort changes -- only the page number resets.
+  // Reset to page 1 whenever search/sort changes (a stale page number
+  // from a previous, larger result set could otherwise land past the
+  // end of a new, smaller/differently-ordered set). Search PERSISTS
+  // across this reset and across sort changes -- only the page number
+  // resets (per spec: "reset to page 1... preserve global search").
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(1);
-  }, [
-    searchTerm,
-    sortBy,
-    sortDir,
-    filters.status,
-    filters.isp,
-    debouncedBalanceMin,
-    debouncedBalanceMax,
-    filters.joinedFrom,
-    filters.joinedTo,
-    filters.lastLogin,
-    filters.lastLoginFrom,
-    filters.lastLoginTo,
-    filters.withdraw,
-    filters.waitlist,
-  ]);
+  }, [searchTerm, sortBy, sortDir]);
 
   // Clear selection whenever the underlying filtered/sorted/paginated
   // result set changes -- selection must always refer to currently
@@ -850,7 +773,7 @@ export default function AdminUsersPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedIds(new Set());
-  }, [searchTerm, sortBy, sortDir, page, filters]);
+  }, [searchTerm, sortBy, sortDir, page]);
 
   const customerRows = useMemo(() => accounts.filter((a) => a.role === "customer"), [accounts]);
   const adminRows = useMemo(() => accounts.filter((a) => a.role !== "customer"), [accounts]);
@@ -881,12 +804,12 @@ export default function AdminUsersPage() {
     });
   }
 
-  function handleSortClick(column) {
+  function handleSort(column, defaultDir) {
     if (sortBy === column) {
       setSortDir((d) => (d === "desc" ? "asc" : "desc"));
     } else {
       setSortBy(column);
-      setSortDir("desc");
+      setSortDir(defaultDir);
     }
   }
 
@@ -896,7 +819,6 @@ export default function AdminUsersPage() {
         <GlassCard className="overflow-hidden">
           <div className="border-b border-white/10 px-5 py-4">
             <h3 className="text-sm font-semibold text-white">User Management</h3>
-            <p className="text-xs text-[#B0B0B0]">Loading users…</p>
           </div>
           <div className="p-10 text-center text-sm text-[#707070]">Loading admin data…</div>
         </GlassCard>
@@ -908,14 +830,8 @@ export default function AdminUsersPage() {
     <div className="space-y-6">
       <GlassCard className="overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-white">User Management</h3>
-            <p className="text-xs text-[#B0B0B0]">
-              Real accounts sourced from SQLite (data/auth.db). &quot;Unlock All Modules&quot; is
-              available per-customer in the Actions column below.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-sm font-semibold text-white">User Management</h3>
+          <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]" />
               <input
@@ -935,34 +851,6 @@ export default function AdminUsersPage() {
                 </button>
               )}
             </div>
-            <button
-              onClick={() => handleSortClick("createdAt")}
-              className={`flex items-center gap-1 rounded-lg px-2.5 py-2 text-[11px] font-semibold ${
-                sortBy === "createdAt" ? "bg-[#32B5FF]/20 text-[#32B5FF]" : "bg-white/5 text-[#B0B0B0] hover:bg-white/10"
-              }`}
-              title="Sort by Created Date"
-            >
-              <ArrowUpDown className="h-3 w-3" />
-              Created {sortBy === "createdAt" ? (sortDir === "desc" ? "(Newest)" : "(Oldest)") : ""}
-            </button>
-            <button
-              onClick={() => handleSortClick("lastLoginAt")}
-              className={`flex items-center gap-1 rounded-lg px-2.5 py-2 text-[11px] font-semibold ${
-                sortBy === "lastLoginAt" ? "bg-[#32B5FF]/20 text-[#32B5FF]" : "bg-white/5 text-[#B0B0B0] hover:bg-white/10"
-              }`}
-              title="Sort by Last Login"
-            >
-              <ArrowUpDown className="h-3 w-3" />
-              Last Login {sortBy === "lastLoginAt" ? (sortDir === "desc" ? "(Newest)" : "(Oldest)") : ""}
-            </button>
-            {anyFilterActive && (
-              <button
-                onClick={clearAllFilters}
-                className="flex items-center gap-1 rounded-lg bg-red-500/10 px-2.5 py-2 text-[11px] font-semibold text-red-400 hover:bg-red-500/20"
-              >
-                <X className="h-3 w-3" /> Clear all filters
-              </button>
-            )}
             <AccentButton onClick={() => setShowCreateModal(true)}>
               <UserPlus className="h-4 w-4" /> Create User
             </AccentButton>
@@ -989,10 +877,10 @@ export default function AdminUsersPage() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1300px] text-sm">
+          <table className="w-full min-w-[1150px] text-sm">
             <thead>
               <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
-                <th className="px-4 py-3">
+                <th className="w-8 px-2 py-3">
                   <input
                     type="checkbox"
                     checked={allSelectedOnPage}
@@ -1007,162 +895,74 @@ export default function AdminUsersPage() {
                 </th>
                 <th className="px-4 py-3">User</th>
                 <th className="px-4 py-3">
-                  <span className="inline-flex items-center">
-                    Status
-                    <ColumnFilter label="Status" active={isFilterActive(filters, "status")}>
-                      <select
-                        value={filters.status}
-                        onChange={(e) => setFilter("status", e.target.value)}
-                        className={filterSelectClass}
-                      >
-                        <option value="all">All</option>
-                        <option value="active">Active</option>
-                        <option value="disabled">Disabled</option>
-                      </select>
-                    </ColumnFilter>
-                  </span>
+                  <SortableHeader
+                    column="status"
+                    label="Status"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    defaultDir="asc"
+                  />
                 </th>
                 <th className="px-4 py-3">
-                  <span className="inline-flex items-center">
-                    ISP
-                    <ColumnFilter label="ISP" active={isFilterActive(filters, "isp")}>
-                      <select
-                        value={filters.isp}
-                        onChange={(e) => setFilter("isp", e.target.value)}
-                        className={filterSelectClass}
-                      >
-                        <option value="all">All</option>
-                        <option value="on">On (actively running)</option>
-                        <option value="off">Off</option>
-                      </select>
-                    </ColumnFilter>
-                  </span>
+                  <SortableHeader
+                    column="isp"
+                    label="ISP"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    defaultDir="asc"
+                  />
                 </th>
                 <th className="px-4 py-3">
-                  <span className="inline-flex items-center">
-                    Balance
-                    <ColumnFilter label="Balance" active={isFilterActive(filters, "balance")}>
-                      <div className="space-y-2">
-                        <label className="block">
-                          <span className="mb-1 block text-[10px] text-[#707070]">Min ($)</span>
-                          <input
-                            value={filters.balanceMin}
-                            onChange={(e) => setFilter("balanceMin", e.target.value)}
-                            placeholder="0.00"
-                            className={filterInputClass}
-                          />
-                        </label>
-                        <label className="block">
-                          <span className="mb-1 block text-[10px] text-[#707070]">Max ($)</span>
-                          <input
-                            value={filters.balanceMax}
-                            onChange={(e) => setFilter("balanceMax", e.target.value)}
-                            placeholder="1000.00"
-                            className={filterInputClass}
-                          />
-                        </label>
-                      </div>
-                    </ColumnFilter>
-                  </span>
+                  <SortableHeader
+                    column="balance"
+                    label="Balance"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    defaultDir="desc"
+                  />
                 </th>
                 <th className="px-4 py-3">
-                  <span className="inline-flex items-center">
-                    Joined
-                    <ColumnFilter label="Joined" active={isFilterActive(filters, "joined")}>
-                      <div className="space-y-2">
-                        <label className="block">
-                          <span className="mb-1 block text-[10px] text-[#707070]">From</span>
-                          <input
-                            type="date"
-                            value={filters.joinedFrom}
-                            onChange={(e) => setFilter("joinedFrom", e.target.value)}
-                            className={filterInputClass}
-                          />
-                        </label>
-                        <label className="block">
-                          <span className="mb-1 block text-[10px] text-[#707070]">To</span>
-                          <input
-                            type="date"
-                            value={filters.joinedTo}
-                            onChange={(e) => setFilter("joinedTo", e.target.value)}
-                            className={filterInputClass}
-                          />
-                        </label>
-                      </div>
-                    </ColumnFilter>
-                  </span>
+                  <SortableHeader
+                    column="joined"
+                    label="Joined"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    defaultDir="desc"
+                  />
                 </th>
                 <th className="px-4 py-3">
-                  <span className="inline-flex items-center">
-                    Last Login
-                    <ColumnFilter label="Last Login" active={isFilterActive(filters, "lastLogin")}>
-                      <div className="space-y-2">
-                        <select
-                          value={filters.lastLogin}
-                          onChange={(e) => setFilter("lastLogin", e.target.value)}
-                          className={filterSelectClass}
-                        >
-                          <option value="all">All</option>
-                          <option value="never">Never</option>
-                          <option value="range">Date range</option>
-                        </select>
-                        {filters.lastLogin === "range" && (
-                          <>
-                            <label className="block">
-                              <span className="mb-1 block text-[10px] text-[#707070]">From</span>
-                              <input
-                                type="date"
-                                value={filters.lastLoginFrom}
-                                onChange={(e) => setFilter("lastLoginFrom", e.target.value)}
-                                className={filterInputClass}
-                              />
-                            </label>
-                            <label className="block">
-                              <span className="mb-1 block text-[10px] text-[#707070]">To</span>
-                              <input
-                                type="date"
-                                value={filters.lastLoginTo}
-                                onChange={(e) => setFilter("lastLoginTo", e.target.value)}
-                                className={filterInputClass}
-                              />
-                            </label>
-                          </>
-                        )}
-                      </div>
-                    </ColumnFilter>
-                  </span>
+                  <SortableHeader
+                    column="lastLogin"
+                    label="Last Login"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    defaultDir="desc"
+                  />
                 </th>
                 <th className="px-4 py-3">
-                  <span className="inline-flex items-center">
-                    Withdraw
-                    <ColumnFilter label="Withdraw" active={isFilterActive(filters, "withdraw")}>
-                      <select
-                        value={filters.withdraw}
-                        onChange={(e) => setFilter("withdraw", e.target.value)}
-                        className={filterSelectClass}
-                      >
-                        <option value="all">All</option>
-                        <option value="available">Available now</option>
-                        <option value="not_available">Not yet available</option>
-                      </select>
-                    </ColumnFilter>
-                  </span>
+                  <SortableHeader
+                    column="withdraw"
+                    label="Withdraw"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    defaultDir="asc"
+                  />
                 </th>
                 <th className="px-4 py-3">
-                  <span className="inline-flex items-center">
-                    Waitlist
-                    <ColumnFilter label="Waitlist" active={isFilterActive(filters, "waitlist")}>
-                      <select
-                        value={filters.waitlist}
-                        onChange={(e) => setFilter("waitlist", e.target.value)}
-                        className={filterSelectClass}
-                      >
-                        <option value="all">All</option>
-                        <option value="yes">Yes</option>
-                        <option value="no">No</option>
-                      </select>
-                    </ColumnFilter>
-                  </span>
+                  <SortableHeader
+                    column="waitlist"
+                    label="Waitlist"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    defaultDir="asc"
+                  />
                 </th>
                 <th className="px-4 py-3">Actions</th>
               </tr>
@@ -1178,6 +978,9 @@ export default function AdminUsersPage() {
                   selectable
                   selected={selectedIds.has(account.id)}
                   onToggleSelect={toggleSelectOne}
+                  onOpenAddBalance={setBalanceModalAccount}
+                  onOpenUnlockModules={setUnlockModalAccount}
+                  unlockMessage={unlockMessages[account.id]}
                 />
               ))}
               {adminRows.map((account) => (
@@ -1188,14 +991,15 @@ export default function AdminUsersPage() {
                   onChanged={loadAccounts}
                   now={now}
                   selectable={false}
+                  onOpenAddBalance={setBalanceModalAccount}
+                  onOpenUnlockModules={setUnlockModalAccount}
+                  unlockMessage={unlockMessages[account.id]}
                 />
               ))}
               {accounts.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-6 text-center text-xs text-[#707070]">
-                    {searchTerm || anyFilterActive
-                      ? "No customers match your search/filters."
-                      : "No accounts yet."}
+                  <td colSpan={9} className="px-4 py-6 text-center text-xs text-[#707070]">
+                    {searchTerm ? "No customers match your search." : "No accounts yet."}
                   </td>
                 </tr>
               )}
@@ -1253,6 +1057,28 @@ export default function AdminUsersPage() {
         </div>
       </GlassCard>
 
+      {balanceModalAccount && (
+        <BalanceModal
+          account={balanceModalAccount}
+          onClose={() => setBalanceModalAccount(null)}
+          onSubmitted={() => {
+            setBalanceModalAccount(null);
+            loadAccounts();
+          }}
+        />
+      )}
+      {unlockModalAccount && (
+        <UnlockAllModal
+          account={unlockModalAccount}
+          onClose={() => setUnlockModalAccount(null)}
+          onSubmitted={(message) => {
+            const targetId = unlockModalAccount.id;
+            setUnlockModalAccount(null);
+            setUnlockMessages((prev) => ({ ...prev, [targetId]: message || "Modules unlocked." }));
+            loadAccounts();
+          }}
+        />
+      )}
       {showBroadcastModal && (
         <BroadcastModal
           recipientIds={[...selectedIds]}

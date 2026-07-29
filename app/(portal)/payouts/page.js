@@ -11,14 +11,12 @@ import { MapPin, TrendingUp, Info } from "lucide-react";
 // Nothing here reads from or writes to Zustand/localStorage, and nothing
 // here touches the earnings ledger.
 //
-// Portal reliability pass: the locked/unlocked decision now comes
-// directly from the server's `locked` field (which itself goes through
-// the shared lib/moduleAccess.js hasModuleAccess() helper -- ISP active
-// OR the admin's per-customer modules_unlocked override) instead of
-// inferring "locked" purely from whether a location string is present.
-// This is what makes an admin-unlocked customer who never completed ISP
-// Setup actually see this page instead of staying stuck on the
-// "Location Required" card.
+// Refinement pass: the locked/unlocked decision comes directly from the
+// server's `locked` field (see lib/moduleAccess.js
+// hasPayoutsNodesAccess() -- ISP fully active AND city+state both on
+// file). This is DELIBERATELY independent of the admin's per-customer
+// "Unlock All Modules" override, which affects training videos only and
+// must never unlock Payouts.
 export default function PayoutsPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);

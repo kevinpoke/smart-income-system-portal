@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAccount } from "@/lib/useAccount";
 import { notifyAccountChanged } from "@/lib/accountEvents";
 import Avatar from "@/components/ui/Avatar";
@@ -13,6 +14,18 @@ import { isAllowedImageMimeLabel } from "@/lib/uploadClientHelpers";
 // admin) update their own first/last name and profile photo -- always
 // scoped to the caller's own session (see app/api/profile and
 // app/api/profile/photo), never another account's.
+//
+// POSITIONING FIX: this modal used to render as a plain child of
+// <Header>, whose className includes `backdrop-blur-xl`. Per the CSS
+// spec, an element with a `backdrop-filter` becomes a containing block
+// for its `position: fixed` descendants -- so the modal's `fixed
+// inset-0` was being sized/positioned relative to the thin <header> box
+// (which sits at the very top of the page) instead of the actual
+// viewport, making it appear pinned near the top of the screen instead
+// of centered. Rendering via createPortal(document.body) escapes that
+// containing-block chain entirely, so `fixed inset-0` now always means
+// the real viewport regardless of which ancestor triggered this modal,
+// on every page and at every viewport size.
 export default function ProfileModal({ account, onClose }) {
   const { refetch } = useAccount();
   const [firstName, setFirstName] = useState(account?.firstName || "");
@@ -41,6 +54,21 @@ export default function ProfileModal({ account, onClose }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPreviewUrl(account?.profilePhotoUrl || null);
   }, [account?.profilePhotoUrl]);
+
+  // Body-scroll lock: while this modal is open, the page behind it must
+  // not scroll (per spec). Restores the PREVIOUS inline value on close/
+  // unmount (rather than unconditionally clearing it) so this can never
+  // clobber some other overflow rule if one is ever added elsewhere;
+  // guarded for SSR since `document` doesn't exist during the server
+  // render.
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
 
   async function handleSaveName(e) {
     e.preventDefault();
@@ -108,14 +136,24 @@ export default function ProfileModal({ account, onClose }) {
     }
   }
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    // items-center + a scrollable outer container (rather than a fixed
+    // height) is what makes this work on short viewports: when the
+    // modal card is taller than the viewport, the OUTER container
+    // scrolls (py-8 gives breathing room top/bottom) instead of the
+    // card overflowing off-screen or getting clipped -- the card itself
+    // additionally caps its own height and scrolls its inner content so
+    // the header/footer (X button, Save/Close buttons) stay reachable
+    // even when a long error message or on a very short screen.
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 p-4 py-8"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1E1E1E] p-6"
+        className="my-auto flex max-h-[calc(100vh-4rem)] w-full max-w-md flex-col overflow-y-auto rounded-2xl border border-white/10 bg-[#1E1E1E] p-6"
       >
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-base font-bold text-white">Edit Profile</h3>
@@ -125,12 +163,21 @@ export default function ProfileModal({ account, onClose }) {
         </div>
 
         <div className="mb-6 flex flex-col items-center gap-3">
-          <Avatar
-            photoUrl={previewUrl}
-            firstName={firstName || account?.firstName}
-            email={account?.email}
-            size={72}
-          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            aria-label="Change profile photo"
+            title="Change profile photo"
+            className="rounded-full transition disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Avatar
+              photoUrl={previewUrl}
+              firstName={firstName || account?.firstName}
+              email={account?.email}
+              size={72}
+            />
+          </button>
           <input
             ref={fileInputRef}
             type="file"
@@ -183,6 +230,7 @@ export default function ProfileModal({ account, onClose }) {
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

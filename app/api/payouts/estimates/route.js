@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentAccountRaw } from "@/lib/session";
 import { computePayoutEstimates } from "@/lib/payoutsEngine";
 import { getPayoutTargetAt } from "@/lib/earningsEngine";
-import { hasModuleAccess } from "@/lib/moduleAccess";
+import { hasPayoutsNodesAccess } from "@/lib/moduleAccess";
 
 // Authenticated customer's payout estimate rows. Purely derived from the
 // account id (for the seed) -- these are demo/marketing figures only and
@@ -20,19 +20,13 @@ import { hasModuleAccess } from "@/lib/moduleAccess";
 // countdown here can never disagree with the Dashboard's "Next Payout"
 // countdown -- there is exactly one calculation, read from two routes.
 //
-// Portal reliability pass: this route previously locked purely on
-// whether an ISP address was on file (isp_city/isp_state), which meant
-// the admin's per-customer "Unlock All Modules" override had NO effect
-// here at all -- a customer who never submitted ISP Setup stayed locked
-// out of Payouts even after being individually unlocked. Now the page is
-// unlocked whenever EITHER the customer has a location on file OR the
-// shared hasModuleAccess() override applies (isp_status === 'active' or
-// modules_unlocked) -- the same helper used by /api/nodes and the
-// Modules page, so the admin's override behaves identically everywhere.
-// Estimate rows are always safe to compute regardless of location (see
-// lib/payoutsEngine.js -- seeded by accountId + calendar month only), so
-// an unlocked-but-no-address account still gets real rows, just with a
-// generic "your area" label instead of a specific city/state.
+// Refinement pass: PAYOUTS must remain locked until BOTH (1) ISP setup
+// is fully completed (isp_status === "active") AND (2) city+state are
+// both stored -- see lib/moduleAccess.js hasPayoutsNodesAccess(). This
+// is DELIBERATELY stricter than (and independent of) hasModuleAccess():
+// the admin's per-customer "Unlock All Modules" override affects
+// training videos ONLY and must never unlock Payouts, so it is not
+// consulted here at all, in either direction.
 export async function GET() {
   const account = await getCurrentAccountRaw();
   if (!account) {
@@ -44,7 +38,7 @@ export async function GET() {
       ? `${account.isp_city}, ${account.isp_state}`
       : null;
 
-  const unlocked = Boolean(location) || hasModuleAccess(account);
+  const unlocked = hasPayoutsNodesAccess(account);
 
   if (!unlocked) {
     return NextResponse.json({ mode: "demo", locked: true, location: null, rows: [] });

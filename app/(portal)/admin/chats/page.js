@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GlassCard, Badge, GhostButton } from "@/components/ui/Primitives";
 import Avatar from "@/components/ui/Avatar";
-import { Plus, Send, ClipboardCheck, MoreVertical, RefreshCw, MailOpen } from "lucide-react";
+import { Plus, Send, ClipboardCheck, MoreVertical, RefreshCw, MailOpen, X } from "lucide-react";
 import clsx from "clsx";
 
 function formatTime(iso) {
@@ -15,7 +15,7 @@ function formatTime(iso) {
   }
 }
 
-function TagManager({ tags, onCreateTag, creating }) {
+function TagManager({ tags, onCreateTag, onDeleteTag, creating, deletingTagId }) {
   const [newTag, setNewTag] = useState("");
   const [open, setOpen] = useState(false);
 
@@ -24,6 +24,14 @@ function TagManager({ tags, onCreateTag, creating }) {
     if (!trimmed) return;
     await onCreateTag(trimmed);
     setNewTag("");
+  }
+
+  function handleDeleteClick(tag) {
+    const confirmed = window.confirm(
+      `Permanently delete the tag "${tag.name}"? It will be removed from every conversation. This cannot be undone.`
+    );
+    if (!confirmed) return;
+    onDeleteTag(tag.id);
   }
 
   return (
@@ -42,6 +50,16 @@ function TagManager({ tags, onCreateTag, creating }) {
                 className="flex items-center gap-1 rounded-full bg-white/10 px-2 py-1 text-[11px] text-white"
               >
                 {tag.name}
+                <button
+                  type="button"
+                  onClick={() => handleDeleteClick(tag)}
+                  disabled={deletingTagId === tag.id}
+                  aria-label={`Delete tag ${tag.name}`}
+                  title={`Delete tag ${tag.name}`}
+                  className="ml-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full text-[#B0B0B0] hover:bg-red-500/30 hover:text-red-300 disabled:opacity-40"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
               </span>
             ))}
           </div>
@@ -74,6 +92,7 @@ export default function AdminChatsPage() {
   const [tags, setTags] = useState([]);
   const [selectedTagIds, setSelectedTagIds] = useState([]);
   const [creatingTag, setCreatingTag] = useState(false);
+  const [deletingTagId, setDeletingTagId] = useState(null);
 
   const [selectedId, setSelectedId] = useState(null);
   const [detail, setDetail] = useState(null); // { conversation, messages }
@@ -255,6 +274,27 @@ export default function AdminChatsPage() {
       return data;
     } finally {
       setCreatingTag(false);
+    }
+  }
+
+  // Refinement pass: permanently deletes a tag (admin-only). Removes it
+  // from the local filter selection (if currently selected) so the
+  // conversation list doesn't keep filtering by an id that no longer
+  // exists, then reloads both the tag list and the conversation list/
+  // open detail so every tag chip everywhere reflects the deletion
+  // immediately, without requiring a manual refresh.
+  async function handleDeleteTag(tagId) {
+    setDeletingTagId(tagId);
+    try {
+      await fetch(`/api/admin/support/tags/${tagId}`, { method: "DELETE" });
+      setSelectedTagIds((prev) => prev.filter((id) => id !== tagId));
+      await loadTags();
+      await loadConversations();
+      if (selectedId) await loadDetail(selectedId);
+    } catch {
+      // non-fatal; tag list just stays stale until next manual refresh
+    } finally {
+      setDeletingTagId(null);
     }
   }
 
@@ -483,7 +523,13 @@ export default function AdminChatsPage() {
                   </div>
                 </div>
               </div>
-              <TagManager tags={tags} onCreateTag={handleCreateTag} creating={creatingTag} />
+              <TagManager
+                tags={tags}
+                onCreateTag={handleCreateTag}
+                onDeleteTag={handleDeleteTag}
+                creating={creatingTag}
+                deletingTagId={deletingTagId}
+              />
             </div>
 
             {tags.length > 0 && (

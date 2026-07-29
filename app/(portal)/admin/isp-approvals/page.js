@@ -27,7 +27,7 @@ export default function AdminIspApprovalsPage() {
       // Pending review is typically a small subset; fetch a generous page
       // size so this tab doesn't need its own pagination for a workload
       // that should stay small in practice.
-      const res = await fetch("/api/admin/accounts?pageSize=100&sortBy=createdAt&sortDir=asc", {
+      const res = await fetch("/api/admin/accounts?pageSize=100&sortBy=joined&sortDir=asc", {
         cache: "no-store",
       });
       const data = await res.json();

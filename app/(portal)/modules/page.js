@@ -43,7 +43,9 @@ function ModuleCard({ mod, now, onOpen }) {
             <div className="flex flex-col items-center gap-2 px-4 text-center text-[#707070]">
               <Lock className="h-8 w-8" />
               {countdown != null && countdown > 0 ? (
-                <span className="font-mono text-xs">
+                <span
+                  className="animate-pulse font-mono text-xs font-semibold text-[#32B5FF] [animation-duration:2.5s] [text-shadow:0_0_8px_rgba(50,181,255,0.85),0_0_16px_rgba(50,181,255,0.5)]"
+                >
                   Unlocks in {formatCompactDuration(countdown)}
                 </span>
               ) : mod.awaitingPrevious ? (
