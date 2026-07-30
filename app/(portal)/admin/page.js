@@ -6,6 +6,9 @@ import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
 import { formatCurrency, centsToDollars, formatCountdown } from "@/lib/mockData";
 import { GlassCard, Badge, AccentButton, GhostButton } from "@/components/ui/Primitives";
+import NodeTierBadge from "@/components/ui/NodeTierBadge";
+import LocationCell from "@/components/admin/LocationCell";
+import { EditNodePopup, AddNodePopup } from "@/components/admin/NodeModals";
 import {
   Lock,
   Unlock,
@@ -19,6 +22,8 @@ import {
   ChevronRight,
   Send,
   UserPlus,
+  Pencil,
+  Plus,
 } from "lucide-react";
 
 const ISP_STATUS_LABELS = {
@@ -437,6 +442,8 @@ function AccountRow({
   onOpenAddBalance,
   onOpenUnlockModules,
   unlockMessage,
+  onOpenEditNodes,
+  onOpenAddNode,
 }) {
   const [emailDraft, setEmailDraft] = useState(account.email);
   const [editingEmail, setEditingEmail] = useState(false);
@@ -569,6 +576,38 @@ function AccountRow({
       <td className="px-4 py-3">
         <Badge tone={ispMeta.tone}>{ispMeta.label}</Badge>
       </td>
+      <td className="px-4 py-3">
+        {account.role === "customer" ? (
+          <div className="flex items-center gap-1.5">
+            {account.primaryNodeTier ? (
+              <NodeTierBadge tierKey={account.primaryNodeTierKey} tier={account.primaryNodeTier} />
+            ) : (
+              <span className="text-xs text-[#707070]">No Node</span>
+            )}
+            {account.nodeCount > 1 && (
+              <span className="text-[10px] text-[#707070]">+{account.nodeCount - 1}</span>
+            )}
+            <button
+              onClick={() => onOpenEditNodes(account)}
+              aria-label={`Edit Nodes for ${account.email}`}
+              title="Edit Nodes"
+              className="flex h-6 w-6 items-center justify-center rounded-md bg-white/5 text-[#B0B0B0] hover:bg-white/10 hover:text-white"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+            <button
+              onClick={() => onOpenAddNode(account)}
+              aria-label={`Add Node for ${account.email}`}
+              title="Add Node"
+              className="flex h-6 w-6 items-center justify-center rounded-md bg-white/5 text-[#B0B0B0] hover:bg-white/10 hover:text-white"
+            >
+              <Plus className="h-3 w-3" />
+            </button>
+          </div>
+        ) : (
+          <span className="text-xs text-[#707070]">—</span>
+        )}
+      </td>
       <td className="px-4 py-3 font-mono text-xs text-white">
         {formatCurrency(centsToDollars(account.currentBalanceCents))}
       </td>
@@ -581,6 +620,20 @@ function AccountRow({
         <Badge tone={account.waitlistJoined ? "accent" : "default"}>
           {account.waitlistJoined ? "Yes" : "No"}
         </Badge>
+      </td>
+      <td className="px-4 py-3">
+        {account.role === "customer" ? (
+          <LocationCell account={account} field="city" onSaved={onChanged} />
+        ) : (
+          <span className="text-xs text-[#707070]">—</span>
+        )}
+      </td>
+      <td className="px-4 py-3">
+        {account.role === "customer" ? (
+          <LocationCell account={account} field="state" onSaved={onChanged} />
+        ) : (
+          <span className="text-xs text-[#707070]">—</span>
+        )}
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-1.5">
@@ -721,6 +774,10 @@ export default function AdminUsersPage() {
   // BroadcastModal/CreateUserModal.
   const [balanceModalAccount, setBalanceModalAccount] = useState(null);
   const [unlockModalAccount, setUnlockModalAccount] = useState(null);
+  // Same lifted-to-page-root pattern for the new Node popups -- never
+  // rendered as a direct child of a <tr>/<table>/<tbody>.
+  const [editNodesAccount, setEditNodesAccount] = useState(null);
+  const [addNodeAccount, setAddNodeAccount] = useState(null);
   // Per-account "Modules unlocked." confirmation text shown inline in
   // that account's row -- keyed by account id so each row keeps its own
   // message independently, matching the previous per-row local state.
@@ -877,7 +934,7 @@ export default function AdminUsersPage() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1150px] text-sm">
+          <table className="w-full min-w-[1550px] text-sm">
             <thead>
               <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
                 <th className="w-8 px-2 py-3">
@@ -908,6 +965,16 @@ export default function AdminUsersPage() {
                   <SortableHeader
                     column="isp"
                     label="ISP"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    defaultDir="asc"
+                  />
+                </th>
+                <th className="px-4 py-3">
+                  <SortableHeader
+                    column="node"
+                    label="Node"
                     sortBy={sortBy}
                     sortDir={sortDir}
                     onSort={handleSort}
@@ -964,6 +1031,26 @@ export default function AdminUsersPage() {
                     defaultDir="asc"
                   />
                 </th>
+                <th className="px-4 py-3">
+                  <SortableHeader
+                    column="city"
+                    label="City"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    defaultDir="asc"
+                  />
+                </th>
+                <th className="px-4 py-3">
+                  <SortableHeader
+                    column="state"
+                    label="State"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    defaultDir="asc"
+                  />
+                </th>
                 <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
@@ -981,6 +1068,8 @@ export default function AdminUsersPage() {
                   onOpenAddBalance={setBalanceModalAccount}
                   onOpenUnlockModules={setUnlockModalAccount}
                   unlockMessage={unlockMessages[account.id]}
+                  onOpenEditNodes={setEditNodesAccount}
+                  onOpenAddNode={setAddNodeAccount}
                 />
               ))}
               {adminRows.map((account) => (
@@ -994,11 +1083,13 @@ export default function AdminUsersPage() {
                   onOpenAddBalance={setBalanceModalAccount}
                   onOpenUnlockModules={setUnlockModalAccount}
                   unlockMessage={unlockMessages[account.id]}
+                  onOpenEditNodes={setEditNodesAccount}
+                  onOpenAddNode={setAddNodeAccount}
                 />
               ))}
               {accounts.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-6 text-center text-xs text-[#707070]">
+                  <td colSpan={12} className="px-4 py-6 text-center text-xs text-[#707070]">
                     {searchTerm ? "No customers match your search." : "No accounts yet."}
                   </td>
                 </tr>
@@ -1095,6 +1186,23 @@ export default function AdminUsersPage() {
           onClose={() => setShowCreateModal(false)}
           onCreated={() => {
             setShowCreateModal(false);
+            loadAccounts();
+          }}
+        />
+      )}
+      {editNodesAccount && (
+        <EditNodePopup
+          account={editNodesAccount}
+          onClose={() => setEditNodesAccount(null)}
+          onChanged={loadAccounts}
+        />
+      )}
+      {addNodeAccount && (
+        <AddNodePopup
+          account={addNodeAccount}
+          onClose={() => setAddNodeAccount(null)}
+          onAdded={() => {
+            setAddNodeAccount(null);
             loadAccounts();
           }}
         />

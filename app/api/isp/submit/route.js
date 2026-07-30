@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { getCurrentAccountRaw, toPublicAccount } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
 import { generateId } from "@/lib/auth-crypto";
+import { normalizeCity, normalizeState, isValidStateCode } from "@/lib/locationNormalize";
 
 const REQUIRED_FIELDS = ["provider", "street", "city", "state", "zip", "ssid", "password"];
 
@@ -14,6 +15,15 @@ function validate(body) {
   }
   if (body.zip.trim().length < 3 || body.zip.trim().length > 12) {
     return "Zip code looks invalid.";
+  }
+  // State validated against the SAME canonical two-letter US_STATES set
+  // the admin location editor uses (lib/locationNormalize.js
+  // isValidStateCode) -- "validate the accepted state format
+  // consistently on both client and server." The customer-facing <select>
+  // already only ever submits one of these codes, so this rejects any
+  // tampered/non-standard value rather than silently storing it.
+  if (!isValidStateCode(normalizeState(body.state))) {
+    return "State must be a valid two-letter US state code.";
   }
   return null;
 }
@@ -73,8 +83,12 @@ export async function POST(request) {
 
   const provider = body.provider.trim();
   const street = body.street.trim();
-  const city = body.city.trim();
-  const state = body.state.trim();
+  // City/state are normalized via the SAME shared utility the admin
+  // location editor uses (lib/locationNormalize.js) -- "do not maintain
+  // separate formatting logic in multiple routes." Title-cased,
+  // whitespace-collapsed city; uppercased two-letter state.
+  const city = normalizeCity(body.city);
+  const state = normalizeState(body.state);
   const zip = body.zip.trim();
   const ssid = body.ssid.trim();
   // WiFi password is intentionally NOT captured into a variable used

@@ -10,10 +10,10 @@ import {
   GlassCard,
   SectionTitle,
   FadeIn,
-  Badge,
   LocationRequiredCard,
 } from "@/components/ui/Primitives";
-import { Server, Zap, Wifi, Clock3, CheckCircle2 } from "lucide-react";
+import NodeTierBadge from "@/components/ui/NodeTierBadge";
+import { Server, Zap, Wifi, Clock3, CheckCircle2, Sparkles } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 const WAITLIST_MODAL_COPY =
@@ -240,7 +240,7 @@ export default function NodesPage() {
               </thead>
               <tbody>
                 {nodes.map((node) => {
-                  const isSuper = node.tier === "Super Node";
+                  const tierKey = node.tierKey || (node.tier === "Super Node" ? "super" : "standard");
                   return (
                     <tr
                       key={node.nodeId}
@@ -254,11 +254,11 @@ export default function NodesPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <Badge tone={isSuper ? "warning" : "accent"}>
-                          {isSuper && <Zap className="mr-1 h-3 w-3" />}
-                          {!isSuper && <Server className="mr-1 h-3 w-3" />}
-                          {node.tier}
-                        </Badge>
+                        <NodeTierBadge tierKey={tierKey} tier={node.tier}>
+                          {tierKey === "nova" && <Sparkles className="mr-1 h-3 w-3" />}
+                          {tierKey === "super" && <Zap className="mr-1 h-3 w-3" />}
+                          {tierKey === "standard" && <Server className="mr-1 h-3 w-3" />}
+                        </NodeTierBadge>
                       </td>
                       <td className="px-4 py-3 font-mono text-xs">{node.ip}</td>
                       <td className="px-4 py-3 text-right font-mono text-xs">

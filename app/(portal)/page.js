@@ -22,6 +22,7 @@ import {
   formatCountdownParts,
 } from "@/lib/mockData";
 import { GlassCard, SectionTitle, FadeIn, Badge } from "@/components/ui/Primitives";
+import NodeTierBadge from "@/components/ui/NodeTierBadge";
 import AnimatedNumber from "@/components/ui/AnimatedNumber";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -493,9 +494,7 @@ function YourNodesSection({ nodes, loading }) {
                       #{node.displayNodeId || node.nodeId}
                     </td>
                     <td className="px-4 py-3">
-                      <Badge tone={node.tier === "Super Node" ? "warning" : "accent"}>
-                        {node.tier}
-                      </Badge>
+                      <NodeTierBadge tierKey={node.tierKey} tier={node.tier} />
                     </td>
                     <td className="px-4 py-3 text-xs">{node.location || "—"}</td>
                     <td className="px-4 py-3 text-right font-mono text-xs text-[#32B5FF]">

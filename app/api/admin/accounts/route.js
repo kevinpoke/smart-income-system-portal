@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { getPayoutTargetAt } from "@/lib/earningsEngine";
+import { displayNameToTierKey } from "@/lib/nodeTiers";
 
 // Lists real accounts created via the purchase webhook / login system
 // (separate from the client-side Zustand demo users on the main site).
@@ -43,12 +44,26 @@ const SQL_SORT_COLUMNS = {
   status: "account_status",
   isp: "isp_status",
   balance: "current_balance_cents",
+  city: "isp_city",
+  state: "isp_state",
 };
 
 const ACCOUNT_SELECT_COLUMNS = `id, email, name, first_name, last_name, must_change_password, role, account_status, created_at,
               last_login_at, waitlist_joined_at,
               isp_status, isp_submitted_at, isp_approved_at, user_authorized_at, node_connected_at,
+              isp_city, isp_state,
               current_balance_cents, lifetime_earnings_cents, modules_unlocked, wifi_enabled`;
+
+// Primary Node tier per the PRIMARY NODE RULE (lib/ownedNodes.js): the
+// earliest-created Node for an account, i.e. the row with the lowest
+// node_number. Expressed as a SQL subquery (rather than a JS
+// post-processing pass like the `withdraw`/`waitlist` special cases
+// below) because `tier` is already a plain orderable string column on a
+// child table -- a correlated subquery works natively in SQLite's own
+// ORDER BY / SELECT list without needing to pull every account's full
+// Node list into JS first.
+const PRIMARY_NODE_TIER_SUBQUERY = `(SELECT tier FROM owned_nodes WHERE owned_nodes.account_id = accounts.id ORDER BY node_number ASC LIMIT 1)`;
+const NODE_COUNT_SUBQUERY = `(SELECT COUNT(*) FROM owned_nodes WHERE owned_nodes.account_id = accounts.id)`;
 
 export async function GET(request) {
   const guard = await requireAdmin();
@@ -124,7 +139,10 @@ export async function GET(request) {
     } else {
       const placeholders = pageIds.map(() => "?").join(",");
       const rows = db
-        .prepare(`SELECT ${ACCOUNT_SELECT_COLUMNS} FROM accounts WHERE id IN (${placeholders})`)
+        .prepare(
+          `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count
+           FROM accounts WHERE id IN (${placeholders})`
+        )
         .all(...pageIds);
       const byId = new Map(rows.map((r) => [r.id, r]));
       accountRows = pageIds.map((id) => byId.get(id)).filter(Boolean);
@@ -136,8 +154,28 @@ export async function GET(request) {
     // IS NOT NULL (1) in ascending order.
     accountRows = db
       .prepare(
-        `SELECT ${ACCOUNT_SELECT_COLUMNS} FROM accounts ${where}
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count
+         FROM accounts ${where}
          ORDER BY (waitlist_joined_at IS NOT NULL) ${sortDir}, created_at DESC
+         LIMIT ? OFFSET ?`
+      )
+      .all(...params, pageSize, offset);
+  } else if (sortByParam === "node") {
+    // Alphabetical sort on the primary Node's tier display name
+    // ("Nova Node" / "Standard Node" / "Super Node"). Accounts with NO
+    // owned Node (subquery returns NULL) sort last regardless of
+    // direction -- the same "consistent placement" treatment already
+    // used for waitlist/never-logged-in accounts elsewhere in this
+    // route -- via the same `(x IS NULL) ASC` trick used for
+    // lastLogin's NULL handling, expressed explicitly here since SQLite
+    // ORDER BY doesn't apply its default NULL-position rule per
+    // direction the same way for a computed subquery column reliably
+    // across SQLite versions.
+    accountRows = db
+      .prepare(
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count
+         FROM accounts ${where}
+         ORDER BY (primary_node_tier IS NULL) ASC, primary_node_tier ${sortDir}
          LIMIT ? OFFSET ?`
       )
       .all(...params, pageSize, offset);
@@ -147,10 +185,14 @@ export async function GET(request) {
     // default, which is the natural, correct behavior for last_login_at
     // (accounts that have "Never" logged in sort to the end in a
     // newest-first view and to the beginning in an oldest-first view) --
-    // no special-casing needed.
+    // no special-casing needed. This also correctly handles city/state
+    // sorting the same way (accounts with no location on file sort to
+    // the natural end/beginning, consistent with every other nullable
+    // sort column in this route).
     accountRows = db
       .prepare(
-        `SELECT ${ACCOUNT_SELECT_COLUMNS} FROM accounts ${where}
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count
+         FROM accounts ${where}
          ORDER BY ${column} ${sortDir}
          LIMIT ? OFFSET ?`
       )
@@ -185,6 +227,11 @@ export async function GET(request) {
         userAuthorizedAt: a.user_authorized_at,
         nodeConnectedAt: a.node_connected_at,
         wifiEnabled: Boolean(a.wifi_enabled),
+        ispCity: a.isp_city,
+        ispState: a.isp_state,
+        primaryNodeTier: a.primary_node_tier || null,
+        primaryNodeTierKey: a.primary_node_tier ? displayNameToTierKey(a.primary_node_tier) : null,
+        nodeCount: a.node_count || 0,
         currentBalanceCents: a.current_balance_cents,
         lifetimeEarningsCents: a.lifetime_earnings_cents,
         modulesUnlocked: Boolean(a.modules_unlocked),
