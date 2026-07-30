@@ -345,12 +345,8 @@ function WifiToggleCard({ summary, refetch }) {
           {eligible ? (
             <>
               Disconnect your WiFi from the StarAtlas Network at any time. Disabling the
-              connection will immediately pause earnings accrual. Re-enabling it requires
-              reconnection, and no earnings will be credited for the time your WiFi was
-              disconnected.
-              <br />
-              <br />
-              For assistance reconnecting, please contact Support.
+              connection will immediately pause earnings accrual. No earnings will be
+              credited for the time your WiFi was disconnected.
             </>
           ) : (
             "WiFi control unlocks once ISP Setup is approved and your initial connection process is complete."
