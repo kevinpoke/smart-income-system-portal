@@ -22,7 +22,8 @@ import { displayNameToTierKey } from "@/lib/nodeTiers";
 // Query params:
 //   q        -- case-insensitive substring match against name OR email
 //   sortBy   -- "joined" (default) | "lastLogin" | "status" | "isp" |
-//               "balance" | "withdraw" | "waitlist"
+//               "balance" | "withdraw" | "waitlist" | "node" | "city" |
+//               "state" | "upsell"
 //   sortDir  -- "desc" (default) | "asc"
 //   page     -- 1-indexed page number (default 1)
 //   pageSize -- rows per page (default 30, capped at 100)
@@ -48,6 +49,28 @@ const SQL_SORT_COLUMNS = {
   state: "isp_state",
 };
 
+// User Management redesign: "Upsell" column. There is no dedicated
+// upsell-purchase field anywhere in the real (SQLite) accounts schema --
+// the only existing "upsell" concept in this codebase is
+// lib/store.js's demo-only Zustand `upsellsPurchased` counter, which is
+// client-side mock state for the OLD, now-unused simulated dashboard and
+// is never read by any real account/admin route. Per spec ("use the
+// existing canonical upsell-related account field if one already
+// exists... do not invent duplicate storage"), the closest genuine
+// server-persisted signal is completion of Training Module 3, "How to
+// Earn More (Upsell)" (see lib/mockData.js MODULES_META id 3 and
+// lib/moduleEngine.js / the account_module_progress table) -- this
+// module's entire content IS the upsell pitch, and its completed_at
+// column already exists for exactly this purpose. Rather than adding a
+// new column that would duplicate information already derivable from
+// account_module_progress, the Upsell column here reads
+// account_module_progress.completed_at for module_key = 3 directly.
+// "Yes" = the customer has completed the upsell training module (has
+// engaged with the upsell pitch); "No" = not yet completed; non-customer
+// rows show "—" since modules/upsell status is not a meaningful concept
+// for admin accounts.
+const UPSELL_COMPLETED_SUBQUERY = `(SELECT completed_at FROM account_module_progress WHERE account_module_progress.account_id = accounts.id AND account_module_progress.module_key = 3)`;
+
 const ACCOUNT_SELECT_COLUMNS = `id, email, name, first_name, last_name, must_change_password, role, account_status, created_at,
               last_login_at, waitlist_joined_at,
               isp_status, isp_submitted_at, isp_approved_at, user_authorized_at, node_connected_at,
@@ -62,8 +85,8 @@ const ACCOUNT_SELECT_COLUMNS = `id, email, name, first_name, last_name, must_cha
 // child table -- a correlated subquery works natively in SQLite's own
 // ORDER BY / SELECT list without needing to pull every account's full
 // Node list into JS first.
-const PRIMARY_NODE_TIER_SUBQUERY = `(SELECT tier FROM owned_nodes WHERE owned_nodes.account_id = accounts.id ORDER BY node_number ASC LIMIT 1)`;
-const NODE_COUNT_SUBQUERY = `(SELECT COUNT(*) FROM owned_nodes WHERE owned_nodes.account_id = accounts.id)`;
+const PRIMARY_NODE_TIER_SUBQUERY = `(SELECT tier FROM owned_nodes WHERE owned_nodes.account_id = accounts.id AND owned_nodes.removed_at IS NULL ORDER BY node_number ASC LIMIT 1)`;
+const NODE_COUNT_SUBQUERY = `(SELECT COUNT(*) FROM owned_nodes WHERE owned_nodes.account_id = accounts.id AND owned_nodes.removed_at IS NULL)`;
 
 export async function GET(request) {
   const guard = await requireAdmin();
@@ -140,7 +163,7 @@ export async function GET(request) {
       const placeholders = pageIds.map(() => "?").join(",");
       const rows = db
         .prepare(
-          `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count
+          `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COMPLETED_SUBQUERY} as upsell_completed_at
            FROM accounts WHERE id IN (${placeholders})`
         )
         .all(...pageIds);
@@ -154,7 +177,7 @@ export async function GET(request) {
     // IS NOT NULL (1) in ascending order.
     accountRows = db
       .prepare(
-        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COMPLETED_SUBQUERY} as upsell_completed_at
          FROM accounts ${where}
          ORDER BY (waitlist_joined_at IS NOT NULL) ${sortDir}, created_at DESC
          LIMIT ? OFFSET ?`
@@ -173,9 +196,23 @@ export async function GET(request) {
     // across SQLite versions.
     accountRows = db
       .prepare(
-        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COMPLETED_SUBQUERY} as upsell_completed_at
          FROM accounts ${where}
          ORDER BY (primary_node_tier IS NULL) ASC, primary_node_tier ${sortDir}
+         LIMIT ? OFFSET ?`
+      )
+      .all(...params, pageSize, offset);
+  } else if (sortByParam === "upsell") {
+    // Same "No"/"Yes" boolean-sort pattern as "waitlist" above: only two
+    // possible values (module 3 completed_at is NULL or not), so
+    // ordering by `(upsell_completed_at IS NOT NULL)` directly via a
+    // correlated subquery in ORDER BY reproduces alphabetical No/Yes
+    // ordering without a second JS pass.
+    accountRows = db
+      .prepare(
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COMPLETED_SUBQUERY} as upsell_completed_at
+         FROM accounts ${where}
+         ORDER BY (${UPSELL_COMPLETED_SUBQUERY} IS NOT NULL) ${sortDir}, created_at DESC
          LIMIT ? OFFSET ?`
       )
       .all(...params, pageSize, offset);
@@ -191,7 +228,7 @@ export async function GET(request) {
     // sort column in this route).
     accountRows = db
       .prepare(
-        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COMPLETED_SUBQUERY} as upsell_completed_at
          FROM accounts ${where}
          ORDER BY ${column} ${sortDir}
          LIMIT ? OFFSET ?`
@@ -235,6 +272,7 @@ export async function GET(request) {
         currentBalanceCents: a.current_balance_cents,
         lifetimeEarningsCents: a.lifetime_earnings_cents,
         modulesUnlocked: Boolean(a.modules_unlocked),
+        upsellCompleted: Boolean(a.upsell_completed_at),
         createdAt: a.created_at,
         lastLoginAt: a.last_login_at,
         waitlistJoined: Boolean(a.waitlist_joined_at),

@@ -13,6 +13,7 @@ import {
   LocationRequiredCard,
 } from "@/components/ui/Primitives";
 import NodeTierBadge from "@/components/ui/NodeTierBadge";
+import FluctuatingEarnings from "@/components/ui/FluctuatingEarnings";
 import { Server, Zap, Wifi, Clock3, CheckCircle2, Sparkles } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -263,7 +264,13 @@ export default function NodesPage() {
                       <td className="px-4 py-3 font-mono text-xs">{node.ip}</td>
                       <td className="px-4 py-3 text-right font-mono text-xs">
                         <span className="text-white [text-shadow:0_0_8px_rgba(50,181,255,0.5)]">
-                          {formatCurrency(centsToDollars(node.estMonthlyCents))}
+                          {/* Display-only +/-5% visual fluctuation layered
+                              over the stable server-supplied
+                              estMonthlyCents core value (see
+                              components/ui/FluctuatingEarnings.js) --
+                              never the actual stored rate, never fed
+                              into any accrual/payout math. */}
+                          <FluctuatingEarnings coreCents={node.estMonthlyCents} />
                         </span>
                         <div className="text-[10px] font-sans text-[#707070]">estimated</div>
                       </td>

@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
 import { formatCompactDuration } from "@/lib/mockData";
+import { normalizeModuleVideo } from "@/lib/moduleVideo";
 import { GlassCard, SectionTitle, Badge, AccentButton } from "@/components/ui/Primitives";
 import { Lock, PlayCircle, CheckCircle2, X } from "lucide-react";
 
@@ -75,6 +76,15 @@ function ModuleCard({ mod, now, onOpen }) {
 }
 
 function VideoModal({ mod, onClose, onFinish, finishing }) {
+  // Training Module video support: normalize the module's raw
+  // admin-supplied videoUrl (if any) into a safe, embeddable descriptor
+  // via lib/moduleVideo.js -- the ONLY place URL validation/normalization
+  // happens. `video` is null whenever no URL is set OR the URL is
+  // unsupported/invalid, in which case the existing placeholder card
+  // below is shown unchanged (safe fallback, never raw HTML injection,
+  // never an unvalidated iframe/video src).
+  const video = mod.videoUrl ? normalizeModuleVideo(mod.videoUrl, mod.videoType) : null;
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -95,15 +105,49 @@ function VideoModal({ mod, onClose, onFinish, finishing }) {
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="flex aspect-video items-center justify-center bg-black text-center">
-          <div className="max-w-sm px-6">
-            <PlayCircle className="mx-auto mb-3 h-14 w-14 text-[#32B5FF]" />
-            <p className="text-sm text-[#B0B0B0]">
-              [Placeholder video — {mod.duration}] This training walks through &quot;{mod.title}
-              &quot; in detail.
-            </p>
+        {/* Responsive 16:9 video container, per spec, shared by both the
+            direct <video> and iframe (Google Drive/YouTube/Vimeo)
+            render paths below -- aspect-video keeps the box the same
+            ratio at any width, both desktop and mobile. */}
+        {video?.kind === "direct" ? (
+          <div className="aspect-video w-full bg-black">
+            <video
+              key={video.src}
+              src={video.src}
+              controls
+              className="h-full w-full"
+              title={mod.videoTitle || mod.title}
+            >
+              Your browser does not support embedded video playback.
+            </video>
           </div>
-        </div>
+        ) : video?.kind === "iframe" ? (
+          <div className="aspect-video w-full bg-black">
+            <iframe
+              key={video.src}
+              src={video.src}
+              title={mod.videoTitle || mod.title}
+              className="h-full w-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              // No referrer/sandbox override needed beyond the browser's
+              // own iframe defaults -- src is already restricted to the
+              // small explicit hostname allowlist in
+              // lib/moduleVideo.js, so this can never render arbitrary
+              // attacker-controlled markup or a javascript:/data: URL.
+            />
+          </div>
+        ) : (
+          <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-[#1c2a33] to-[#0e1a20] text-center">
+            <div className="max-w-sm px-6">
+              <PlayCircle className="mx-auto mb-3 h-14 w-14 text-[#32B5FF]" />
+              <p className="text-sm text-[#B0B0B0]">
+                [Placeholder video — {mod.duration}] This training walks through &quot;{mod.title}
+                &quot; in detail.
+              </p>
+            </div>
+          </div>
+        )}
         <div className="flex items-center justify-between p-4">
           <p className="text-xs text-[#707070]">
             {mod.completed

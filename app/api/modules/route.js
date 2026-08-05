@@ -21,7 +21,15 @@ export async function GET() {
     modulesUnlocked: Boolean(account.modules_unlocked),
     modules: statuses.map((s) => {
       const meta = MODULES_META.find((m) => m.id === s.id);
-      return { ...s, title: meta?.title, description: meta?.description, duration: meta?.duration };
+      return {
+        ...s,
+        title: meta?.title,
+        description: meta?.description,
+        duration: meta?.duration,
+        videoUrl: meta?.videoUrl || null,
+        videoType: meta?.videoType || null,
+        videoTitle: meta?.videoTitle || null,
+      };
     }),
   });
 }

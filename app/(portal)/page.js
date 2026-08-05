@@ -23,6 +23,7 @@ import {
 } from "@/lib/mockData";
 import { GlassCard, SectionTitle, FadeIn, Badge } from "@/components/ui/Primitives";
 import NodeTierBadge from "@/components/ui/NodeTierBadge";
+import FluctuatingEarnings from "@/components/ui/FluctuatingEarnings";
 import AnimatedNumber from "@/components/ui/AnimatedNumber";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -41,8 +42,8 @@ import {
 
 const RECONNECT_DURATION_MS = 20000; // exactly 20 seconds, per spec -- must match lib/wifiEngine.js
 const RECONNECT_SUCCESS_COPY =
-  "You have successfully connected to the StarAtlas Network. You may now resume your estimated earnings.";
-const RECONNECT_PROGRESS_COPY = "Establishing a Secure Connection to the StarAtlas Network…";
+  "You have successfully connected to the STAR ATLAS Network. You may now resume your estimated earnings.";
+const RECONNECT_PROGRESS_COPY = "Establishing a Secure Connection to the STAR ATLAS Network…";
 
 
 function CustomTooltip({ active, payload, label }) {
@@ -344,7 +345,7 @@ function WifiToggleCard({ summary, refetch }) {
         <div className="text-xs text-[#707070]">
           {eligible ? (
             <>
-              Disconnect your WiFi from the StarAtlas Network at any time. Disabling the
+              Disconnect your WiFi from the STAR ATLAS Network at any time. Disabling the
               connection will immediately pause earnings accrual. No earnings will be
               credited for the time your WiFi was disconnected.
             </>
@@ -501,7 +502,11 @@ function YourNodesSection({ nodes, loading }) {
                       />
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-xs text-white">
-                      {formatCurrency(centsToDollars(node.estMonthlyCents))}
+                      {/* Display-only +/-5% visual fluctuation over the
+                          stable server-supplied estMonthlyCents core
+                          (see components/ui/FluctuatingEarnings.js) --
+                          never the actual stored rate/ledger/accrual. */}
+                      <FluctuatingEarnings coreCents={node.estMonthlyCents} />
                     </td>
                   </tr>
                 ))}
@@ -754,7 +759,7 @@ export default function DashboardPage() {
                       ) : (
                         <span className="font-mono text-sm font-bold text-white">--</span>
                       )}
-                      <Badge tone="accent">remaining</Badge>
+                      <span className="text-xs text-[#B0B0B0]">remaining</span>
                     </>
                   )}
                 </div>

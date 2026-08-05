@@ -5,6 +5,7 @@ import { GhostButton, AccentButton } from "@/components/ui/Primitives";
 import NodeTierBadge from "@/components/ui/NodeTierBadge";
 import { NODE_TIERS, TIER_KEYS } from "@/lib/nodeTiers";
 import { formatCurrency, centsToDollars } from "@/lib/mockData";
+import { Trash2 } from "lucide-react";
 
 // Edit Node popup: lists every owned Node for one customer account, each
 // with its own tier <select> + Save button scoped to that single Node
@@ -23,6 +24,7 @@ export function EditNodePopup({ account, onClose, onChanged }) {
   const [error, setError] = useState("");
   const [savingNodeId, setSavingNodeId] = useState(null);
   const [pendingTiers, setPendingTiers] = useState({});
+  const [removingNodeId, setRemovingNodeId] = useState(null);
 
   async function loadNodes() {
     setLoading(true);
@@ -72,6 +74,40 @@ export function EditNodePopup({ account, onClose, onChanged }) {
       setError("Something went wrong. Please try again.");
     } finally {
       setSavingNodeId(null);
+    }
+  }
+
+  // Admin-only Remove Node: requires an explicit confirmation before
+  // firing the DELETE request (per spec: "require a clear confirmation
+  // before removal"), shows a per-row pending state while the request is
+  // in flight (disables both the Save and Remove controls for that row
+  // so a double-click can't fire two overlapping removal requests for
+  // the same Node), and on success reloads this popup's Node list AND
+  // notifies the parent (onChanged -> loadAccounts()) so the User
+  // Management row's Node column/count refreshes too -- "refresh the
+  // popup and User Management row after success."
+  async function handleRemove(node) {
+    const confirmed = window.confirm(
+      `Remove Node #${node.displayNodeId} for ${account.email}? This stops all future earnings for this Node but keeps its earnings history intact. This cannot be undone.`
+    );
+    if (!confirmed) return;
+    setRemovingNodeId(node.id);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/accounts/${account.id}/nodes/${node.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Unable to remove Node.");
+        return;
+      }
+      await loadNodes();
+      onChanged();
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setRemovingNodeId(null);
     }
   }
 
@@ -131,7 +167,8 @@ export function EditNodePopup({ account, onClose, onChanged }) {
                         setPendingTiers((prev) => ({ ...prev, [node.id]: e.target.value }))
                       }
                       aria-label={`Tier for Node ${node.displayNodeId}`}
-                      className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
+                      disabled={removingNodeId === node.id}
+                      className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF] disabled:opacity-50"
                     >
                       {TIER_KEYS.map((key) => (
                         <option key={key} value={key}>
@@ -142,10 +179,30 @@ export function EditNodePopup({ account, onClose, onChanged }) {
                     <button
                       type="button"
                       onClick={() => handleSave(node)}
-                      disabled={!changed || savingNodeId === node.id}
+                      disabled={!changed || savingNodeId === node.id || removingNodeId === node.id}
                       className="rounded-lg bg-[#32B5FF]/20 px-3 py-1.5 text-xs font-semibold text-[#32B5FF] disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {savingNodeId === node.id ? "Saving…" : "Save"}
+                    </button>
+                    {/* Node removal (User Management -> Remove Node):
+                        admin-only, requires confirmation (see
+                        handleRemove above), shows a pending state, and
+                        is disabled while a save is also in flight for
+                        this same row so the two actions can never race
+                        against each other. */}
+                    <button
+                      type="button"
+                      onClick={() => handleRemove(node)}
+                      disabled={savingNodeId === node.id || removingNodeId === node.id}
+                      aria-label={`Remove Node ${node.displayNodeId} for ${account.email}`}
+                      title="Remove Node"
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-red-500/15 text-red-400 hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {removingNodeId === node.id ? (
+                        <span className="text-[10px] font-semibold">…</span>
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
                     </button>
                   </div>
                 </div>

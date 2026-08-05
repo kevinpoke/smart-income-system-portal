@@ -521,8 +521,22 @@ function AccountRow({
 
   return (
     <tr className="border-b border-white/5 align-top text-[#B0B0B0] hover:bg-white/[0.03]">
-      {selectable && (
-        <td className="w-8 px-2 py-3">
+      {/* User Management alignment fix: this checkbox <td> is now ALWAYS
+          rendered (never conditionally skipped), for every row
+          regardless of role. The previous `{selectable && <td>...}`
+          guard omitted this cell entirely for admin/non-customer rows,
+          giving them one FEWER <td> than customer rows and visually
+          shifting every subsequent column left by one slot for the
+          admin@staratlas.local row specifically (the only non-customer
+          row normally visible in User Management). Every row must have
+          the exact same number of <td> elements so the header/body
+          columns always line up -- for non-selectable rows the cell
+          renders a "—" placeholder instead of a checkbox input, keeping
+          cell COUNT identical while still being visually/semantically
+          inert (no interactive control) for rows that were never
+          selectable to begin with. */}
+      <td className="w-8 px-2 py-3">
+        {selectable ? (
           <input
             type="checkbox"
             checked={selected}
@@ -530,8 +544,10 @@ function AccountRow({
             aria-label={`Select ${account.email}`}
             className="h-4 w-4 rounded border-white/20 bg-white/5 accent-[#32B5FF]"
           />
-        </td>
-      )}
+        ) : (
+          <span className="text-xs text-[#707070]">—</span>
+        )}
+      </td>
       <td className="px-4 py-3">
         <div className="font-semibold text-white">{account.name}</div>
         {editingEmail ? (
@@ -620,6 +636,15 @@ function AccountRow({
         <Badge tone={account.waitlistJoined ? "accent" : "default"}>
           {account.waitlistJoined ? "Yes" : "No"}
         </Badge>
+      </td>
+      <td className="px-4 py-3">
+        {account.role === "customer" ? (
+          <Badge tone={account.upsellCompleted ? "accent" : "default"}>
+            {account.upsellCompleted ? "Yes" : "No"}
+          </Badge>
+        ) : (
+          <span className="text-xs text-[#707070]">—</span>
+        )}
       </td>
       <td className="px-4 py-3">
         {account.role === "customer" ? (
@@ -1033,6 +1058,16 @@ export default function AdminUsersPage() {
                 </th>
                 <th className="px-4 py-3">
                   <SortableHeader
+                    column="upsell"
+                    label="Upsell"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    defaultDir="asc"
+                  />
+                </th>
+                <th className="px-4 py-3">
+                  <SortableHeader
                     column="city"
                     label="City"
                     sortBy={sortBy}
@@ -1089,7 +1124,7 @@ export default function AdminUsersPage() {
               ))}
               {accounts.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-6 text-center text-xs text-[#707070]">
+                  <td colSpan={14} className="px-4 py-6 text-center text-xs text-[#707070]">
                     {searchTerm ? "No customers match your search." : "No accounts yet."}
                   </td>
                 </tr>

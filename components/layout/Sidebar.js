@@ -70,7 +70,7 @@ export default function Sidebar() {
         <Satellite className="h-7 w-7 text-[#32B5FF]" />
         <div>
           <div className="text-sm font-bold leading-tight text-white">
-            Star Atlas
+            STAR ATLAS
           </div>
           <div className="text-[11px] leading-tight text-[#B0B0B0]">
             Rewards Network
