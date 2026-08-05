@@ -718,7 +718,7 @@ export default function DashboardPage() {
                   </div>
                   <AnimatedNumber
                     value={card.value}
-                    format="currencyTrimmed"
+                    format="currency"
                     className="mt-2 block font-mono text-2xl font-bold text-white"
                   />
                 </GlassCard>

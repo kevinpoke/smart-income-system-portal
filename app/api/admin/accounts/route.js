@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
-import { getPayoutTargetAt } from "@/lib/earningsEngine";
+import { getPayoutTargetAt, computeEarningsSummary } from "@/lib/earningsEngine";
 import { displayNameToTierKey } from "@/lib/nodeTiers";
 
 // Lists real accounts created via the purchase webhook / login system
@@ -242,6 +242,37 @@ export async function GET(request) {
     )
     .all();
 
+  // Admin Balance column fix: the Balance column must reflect the SAME
+  // canonical current earned balance as the customer Dashboard, including
+  // any live accrued earnings from the current in-progress cycle -- not
+  // just the last-persisted `current_balance_cents` snapshot (which only
+  // updates when a completed cycle's catch-up runs, e.g. on the
+  // customer's own next Dashboard load). `computeEarningsSummary()`
+  // (lib/earningsEngine.js) is the single canonical earnings engine
+  // already used by the Dashboard/`/api/earnings/summary`/`/api/nodes/
+  // owned` -- reusing it here (rather than re-implementing any of its
+  // math) both runs the same completed-cycle catch-up the Dashboard
+  // would have run AND adds the current cycle's live accrued cents on
+  // top, so admin and customer views can never disagree. This is
+  // deliberately NOT the cosmetic +/-10% `dailyFluctuationMultiplier`
+  // display wobble -- `todayAccruedCents` is the real, WiFi-gated,
+  // per-Node-eligibility-aware accrued amount, the exact same number the
+  // Dashboard's "Today (1d)" card and Live Earnings ticker are built
+  // from. To keep this cheap, it is only computed for the accounts
+  // actually being returned on this one paginated page (never the full
+  // account list), and only for `role === "customer"` rows (admin/staff
+  // accounts have no owned Nodes/earnings and would just no-op through
+  // computeEarningsSummary's `active` gate anyway, so skipping them
+  // avoids a wasted query per admin row).
+  const canonicalBalanceById = new Map();
+  for (const a of accountRows) {
+    if (a.role !== "customer") continue;
+    const summary = computeEarningsSummary(db, a.id);
+    if (summary) {
+      canonicalBalanceById.set(a.id, summary.currentBalanceCents + (summary.todayAccruedCents || 0));
+    }
+  }
+
   return NextResponse.json({
     accounts: accountRows.map((a) => {
       const { payoutTargetAt, payoutAvailable } = getPayoutTargetAt(a);
@@ -269,7 +300,9 @@ export async function GET(request) {
         primaryNodeTier: a.primary_node_tier || null,
         primaryNodeTierKey: a.primary_node_tier ? displayNameToTierKey(a.primary_node_tier) : null,
         nodeCount: a.node_count || 0,
-        currentBalanceCents: a.current_balance_cents,
+        currentBalanceCents: canonicalBalanceById.has(a.id)
+          ? canonicalBalanceById.get(a.id)
+          : a.current_balance_cents,
         lifetimeEarningsCents: a.lifetime_earnings_cents,
         modulesUnlocked: Boolean(a.modules_unlocked),
         upsellCompleted: Boolean(a.upsell_completed_at),

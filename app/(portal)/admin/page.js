@@ -808,7 +808,17 @@ export default function AdminUsersPage() {
   // message independently, matching the previous per-row local state.
   const [unlockMessages, setUnlockMessages] = useState({});
 
+  // Hourly Balance refresh: guards against overlapping requests (e.g. the
+  // 60-minute timer firing while a manual loadAccounts() from a
+  // search/sort/page change or a Node/Balance/etc. action is still
+  // in-flight) -- a `fetch` already in progress is simply skipped rather
+  // than queued or aborted, since the in-flight request will itself
+  // deliver a fresh Balance snapshot momentarily.
+  const isFetchingRef = useRef(false);
+
   async function loadAccounts() {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     setLoadingAccounts(true);
     try {
       const params = new URLSearchParams();
@@ -828,6 +838,7 @@ export default function AdminUsersPage() {
       // ignore, table just stays stale
     } finally {
       setLoadingAccounts(false);
+      isFetchingRef.current = false;
     }
   }
 
@@ -837,6 +848,29 @@ export default function AdminUsersPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial
     loadAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm, sortBy, sortDir, page]);
+
+  // Admin User Management hourly Balance refresh: re-fetches the SAME
+  // current page (via loadAccounts, reading current searchTerm/sortBy/
+  // sortDir/page from closure) every 60 minutes so the Balance column's
+  // live-accrued canonical earnings stay reasonably fresh WITHOUT a full
+  // page reload -- current search/sort/pagination/selection are all
+  // preserved because loadAccounts() only ever replaces `accounts`/
+  // `recentEmails`/`total`/`totalPages` state, never the query-param
+  // state itself. Deliberately a plain page-level `setInterval`, not a
+  // cron job -- this is a per-open-tab display refresh, not a background
+  // job the architecture needs server-side. The overlap guard above
+  // (isFetchingRef) prevents a slow request and the next hourly tick from
+  // ever running concurrently. Manual actions (Add/Edit/Remove Node,
+  // Add Balance, tier change, etc.) already call loadAccounts()
+  // immediately via their own onChanged/onSubmitted callbacks -- this
+  // timer is purely the passive 60-minute background refresh.
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      loadAccounts();
+    }, 60 * 60 * 1000); // 60 minutes
+    return () => clearInterval(intervalId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadAccounts closes over current searchTerm/sortBy/sortDir/page/pageSize; recreating the interval on every keystroke/sort/page change is unnecessary since it always reads fresh values from the current effect run's closure, but we DO want the timer's target params to stay current, so include the same deps as the fetch-on-change effect above.
   }, [searchTerm, sortBy, sortDir, page]);
 
   // Reset to page 1 whenever search/sort changes (a stale page number
