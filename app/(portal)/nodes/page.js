@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import clsx from "clsx";
 import { useAccount } from "@/lib/useAccount";
 import { formatCurrency, centsToDollars, formatCountdown } from "@/lib/mockData";
 import { useWaitlistStatus } from "@/lib/useWaitlistStatus";
@@ -12,7 +13,7 @@ import {
   FadeIn,
   LocationRequiredCard,
 } from "@/components/ui/Primitives";
-import NodeTierBadge from "@/components/ui/NodeTierBadge";
+import NodeTierBadge, { NOVA_CARD_GLOW_CLASS } from "@/components/ui/NodeTierBadge";
 import FluctuatingEarnings from "@/components/ui/FluctuatingEarnings";
 import { Server, Zap, Wifi, Clock3, CheckCircle2, Sparkles } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -245,7 +246,10 @@ export default function NodesPage() {
                   return (
                     <tr
                       key={node.nodeId}
-                      className="border-b border-white/5 text-[#B0B0B0] transition hover:bg-white/[0.03]"
+                      className={clsx(
+                        "border-b border-white/5 text-[#B0B0B0] transition hover:bg-white/[0.03]",
+                        tierKey === "nova" && NOVA_CARD_GLOW_CLASS
+                      )}
                     >
                       <td className="px-4 py-3 font-mono text-xs text-white">#{node.nodeId}</td>
                       <td className="px-4 py-3 text-xs">

@@ -569,15 +569,25 @@ export default function AdminChatsPage() {
               {detailStatus === "ready" &&
                 (detail?.messages || []).map((m) => {
                   const isAdmin = m.senderRole === "admin";
+                  // Canonical sender identity: ALWAYS the per-message
+                  // senderFirstName/senderPhotoUrl fields computed
+                  // server-side by lib/supportEngine.js
+                  // enrichMessagesWithIdentity() (see lib/supportEngine.js
+                  // for the single canonical sender-display resolver).
+                  // Never fall back to conversation-level metadata
+                  // (detail.conversation.accountFirstName/accountPhotoUrl)
+                  // here -- that field describes whoever OWNS the
+                  // conversation, not necessarily who sent this specific
+                  // message, and mixing the two was the root cause of the
+                  // Ashley-misattribution bug (a customer message could
+                  // end up rendered with stale/wrong identity if the
+                  // conversation-level fields were used as the source of
+                  // truth instead of the per-message ones the server
+                  // already resolved correctly).
                   const displayName = isAdmin
                     ? m.senderFirstName || "Ashley"
-                    : detail?.conversation?.accountFirstName ||
-                      detail?.conversation?.accountName ||
-                      selectedConversationMeta?.accountName ||
-                      "Customer";
-                  const photoUrl = isAdmin
-                    ? m.senderPhotoUrl
-                    : detail?.conversation?.accountPhotoUrl;
+                    : m.senderFirstName || "Customer";
+                  const photoUrl = m.senderPhotoUrl;
                   return (
                     <div
                       key={m.id}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import clsx from "clsx";
 import {
@@ -12,7 +13,6 @@ import {
   Server,
   Banknote,
   LifeBuoy,
-  Satellite,
   ShieldCheck,
   LogOut,
 } from "lucide-react";
@@ -67,7 +67,23 @@ export default function Sidebar() {
   return (
     <aside className="fixed left-0 top-0 z-40 hidden h-screen w-64 flex-col border-r border-white/10 bg-[#161616]/80 backdrop-blur-xl lg:flex">
       <div className="flex items-center gap-2 px-6 py-6">
-        <Satellite className="h-7 w-7 text-[#32B5FF]" />
+        {/* Sidebar branding: single shared /public/star-atlas-logo.png
+            asset, object-contain so the source image's own aspect ratio
+            is always preserved (never cropped/stretched/distorted).
+            Fixed compact box sized for the Sidebar rail -- readable at
+            this size on both desktop (this Sidebar) and mobile (see
+            components/layout/MobileNav.js for the same asset used
+            there). Text-only branding is fully replaced by the logo per
+            spec; no duplicate second copy of the image anywhere on this
+            page. */}
+        <Image
+          src="/star-atlas-logo.png"
+          alt="STAR ATLAS Rewards Network"
+          width={1448}
+          height={1086}
+          className="h-10 w-auto flex-shrink-0 object-contain"
+          priority
+        />
         <div>
           <div className="text-sm font-bold leading-tight text-white">
             STAR ATLAS

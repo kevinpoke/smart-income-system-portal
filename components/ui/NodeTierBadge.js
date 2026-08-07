@@ -15,6 +15,23 @@ import { Badge } from "./Primitives";
 // "Your Nodes", the Nodes marketplace, User Management's Node column,
 // and both the Edit Node / Add Node admin popups) so there is exactly
 // one visual definition of "what a Nova Node looks like."
+
+// Refinement pass (Nova card glow fix): the badge above only glows a
+// small pill -- it was never enough to satisfy "the entire Node card
+// must visibly glow purple" (Dashboard "Your Nodes" row / Nodes
+// marketplace row). This is the SINGLE shared class string applied to
+// the whole table row/card container for a Nova Node in both places, so
+// the Dashboard and Nodes-page Nova treatment stay visually identical
+// forever (no duplicated glow definitions to drift out of sync). A
+// static ambient glow (border + box-shadow + faint purple tint), NOT an
+// animate-pulse loop -- pulsing the entire row would also fade the
+// earnings text/numbers inside it on every cycle, which reads as
+// "broken," not "premium." The badge itself keeps its own subtle pulse
+// (small, isolated element) for the accent flourish.
+export const NOVA_CARD_GLOW_CLASS =
+  "relative z-0 border-purple-400/40 bg-purple-500/[0.07] " +
+  "shadow-[inset_0_0_0_1px_rgba(192,132,252,0.35),0_0_18px_2px_rgba(192,132,252,0.35)]";
+
 export default function NodeTierBadge({ tierKey, tier, className = "", children }) {
   const label = tier || (tierKey ? `${tierKey[0].toUpperCase()}${tierKey.slice(1)} Node` : "—");
 

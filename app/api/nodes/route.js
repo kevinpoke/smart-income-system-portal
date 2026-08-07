@@ -51,6 +51,18 @@ export async function GET() {
       nodeId: n.nodeId,
       location: n.location,
       tier: n.tier,
+      // Refinement pass (Nova glow fix): tierKey was missing from this
+      // projection entirely -- the page's client-side fallback
+      // (`node.tierKey || (node.tier === "Super Node" ? "super" :
+      // "standard")`) had no way to ever resolve "nova" without it, so
+      // EVERY Nova row silently fell through to "standard" here (this
+      // was the actual root cause of "the purple glow is not visibly
+      // appearing": NodeTierBadge/the card glow were never even given
+      // the correct tier key to key off of, not a CSS/z-index/overflow
+      // issue). computeNodes() in lib/nodesEngine.js already computes
+      // tierKey correctly for every row; this was purely an omission in
+      // this response's field allow-list.
+      tierKey: n.tierKey,
       ip: n.ip,
       estMonthlyCents: n.estMonthlyCents,
       costCents: n.costCents,

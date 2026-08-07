@@ -168,10 +168,24 @@ export default function SupportPage() {
             {status === "ready" &&
               messages.map((m) => {
                 const isCustomer = m.senderRole === "customer";
+                // Canonical sender identity: prefer the per-message
+                // senderFirstName/senderPhotoUrl fields the server
+                // resolved via lib/supportEngine.js
+                // enrichMessagesWithIdentity() -- the SAME canonical
+                // shape the admin Support Chats inbox reads, so this
+                // page and the admin view can never disagree about who
+                // sent a message. `account` (from useAccount(), backed
+                // by the authenticated /api/auth/me session, never a
+                // client-supplied value) is used ONLY as a fallback for
+                // the customer's own optimistic "pending-*" message
+                // before the server round-trip has attached
+                // senderFirstName/senderPhotoUrl.
                 const displayName = isCustomer
-                  ? account?.firstName || "You"
+                  ? m.senderFirstName || account?.firstName || "You"
                   : m.senderFirstName || "Ashley";
-                const photoUrl = isCustomer ? account?.profilePhotoUrl : m.senderPhotoUrl;
+                const photoUrl = isCustomer
+                  ? m.senderPhotoUrl || account?.profilePhotoUrl
+                  : m.senderPhotoUrl;
                 return (
                   <div
                     key={m.id}

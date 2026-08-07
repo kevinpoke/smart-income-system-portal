@@ -2,8 +2,8 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { GlassCard, AccentButton } from "@/components/ui/Primitives";
-import { Satellite } from "lucide-react";
 
 // This page renders OUTSIDE the (portal) route group's layout, so it never
 // receives the authenticated app shell (Sidebar/Header/MobileNav/
@@ -47,14 +47,6 @@ function LoginForm() {
 
   return (
     <GlassCard className="w-full max-w-sm p-8">
-      <div className="mb-6 flex flex-col items-center gap-2 text-center">
-        <Satellite className="h-8 w-8 text-[#32B5FF]" />
-        <div>
-          <div className="text-lg font-bold text-white">Star Atlas</div>
-          <div className="text-xs text-[#B0B0B0]">Rewards Network</div>
-        </div>
-      </div>
-
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="mb-1 block text-xs font-medium text-[#B0B0B0]">
@@ -103,7 +95,23 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#121212] px-4">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[#121212] px-4">
+      {/* Login branding: single shared /public/star-atlas-logo.png asset,
+          shown larger here (above the form) than the compact Sidebar
+          version -- same object-contain treatment preserves the source
+          image's own aspect ratio (never cropped/stretched/distorted).
+          Responsive width (clamped, not a fixed huge box) keeps this
+          usable on small mobile viewports without pushing the form
+          below the fold; the form itself is untouched below and stays
+          centered either way. */}
+      <Image
+        src="/star-atlas-logo.png"
+        alt="STAR ATLAS Rewards Network"
+        width={1448}
+        height={1086}
+        className="h-auto w-40 object-contain sm:w-48"
+        priority
+      />
       <Suspense fallback={null}>
         <LoginForm />
       </Suspense>
