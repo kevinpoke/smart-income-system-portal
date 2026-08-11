@@ -475,12 +475,13 @@ function YourNodesSection({ nodes, loading }) {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px] text-sm">
+            <table className="w-full min-w-[820px] text-sm">
               <thead>
                 <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
                   <th className="px-4 py-3">Node ID</th>
                   <th className="px-4 py-3">Node Type</th>
                   <th className="px-4 py-3">Location</th>
+                  <th className="px-4 py-3 text-right">Avg Daily Earnings</th>
                   <th className="px-4 py-3 text-right">Total Earnings</th>
                   <th className="px-4 py-3 text-right">Est. Monthly Earnings</th>
                 </tr>
@@ -501,6 +502,17 @@ function YourNodesSection({ nodes, loading }) {
                       <NodeTierBadge tierKey={node.tierKey} tier={node.tier} />
                     </td>
                     <td className="px-4 py-3 text-xs">{node.location || "—"}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs text-[#B0B0B0]">
+                      {/* Avg Daily Earnings = this Node's canonical
+                          totalEarningsCents / its canonical ON-duration
+                          (lib/earningsEngine.js computeAvgDailyEarningsCents,
+                          server-computed) -- always shown as a plain,
+                          non-animated, exactly-2-decimal figure (never the
+                          fluctuating display treatment used for estimated
+                          rates) since it is a derived historical average,
+                          not a live/projected number. */}
+                      {formatCurrency(centsToDollars(node.avgDailyEarningsCents))}
+                    </td>
                     <td className="px-4 py-3 text-right font-mono text-xs text-[#32B5FF]">
                       <AnimatedNumber
                         value={centsToDollars(node.totalEarningsCents)}

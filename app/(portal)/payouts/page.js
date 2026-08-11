@@ -90,13 +90,12 @@ export default function PayoutsPage() {
           <GlassCard className="overflow-hidden">
             <div className="border-b border-white/10 px-5 py-4">
               <h3 className="text-sm font-semibold text-white">
-                Previous Payouts in Your Area
+                Average Payouts in Your Area
               </h3>
               <p className="mt-1 flex items-start gap-1.5 text-xs text-[#B0B0B0]">
                 <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[#32B5FF]" />
-                These amounts are estimates based on the projected earnings
-                of each Node in your area. Actual payouts are issued every
-                four months.
+                These amounts are based on the average monthly user earnings
+                in your area. Actual payouts are issued every four months.
               </p>
             </div>
             <div className="overflow-x-auto">

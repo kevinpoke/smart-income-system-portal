@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getCurrentAccountRaw } from "@/lib/session";
 import { listOwnedNodes, computeNodeEarningsTotals } from "@/lib/ownedNodes";
-import { computeEarningsSummary } from "@/lib/earningsEngine";
+import {
+  computeEarningsSummary,
+  computeNodeOnDurationMs,
+  computeAvgDailyEarningsCents,
+} from "@/lib/earningsEngine";
 
 // Authenticated customer's persisted, OWNED Node records (Dashboard "Your
 // Nodes" section) -- distinct from /api/nodes (the browsable marketplace
@@ -18,6 +22,14 @@ import { computeEarningsSummary } from "@/lib/earningsEngine";
 // ensures this route uses the EXACT SAME live-accrual/WiFi-gating source
 // of truth as the Dashboard's own earnings summary -- never a second,
 // independently-computed live number that could drift out of sync.
+//
+// "Avg Daily Earnings" column: each row also carries `avgDailyEarningsCents`,
+// computed from this SAME totalEarningsCents numerator divided by the
+// Node's own canonical ON/earning duration (lib/earningsEngine.js
+// computeNodeOnDurationMs, which replays the SAME wifi_events history
+// computeOnMsInRange already uses for actual accrual) -- never the
+// account's age and never a naive calendar-day count that would ignore
+// disconnected time.
 export async function GET() {
   const account = await getCurrentAccountRaw();
   if (!account) {
@@ -31,9 +43,15 @@ export async function GET() {
 
   return NextResponse.json({
     mode: "demo",
-    nodes: nodes.map((n) => ({
-      ...n,
-      totalEarningsCents: nodeEarnings[n.id] || 0,
-    })),
+    nodes: nodes.map((n) => {
+      const totalEarningsCents = nodeEarnings[n.id] || 0;
+      const onDurationMs = computeNodeOnDurationMs(db, account, n);
+      return {
+        ...n,
+        totalEarningsCents,
+        onDurationMs,
+        avgDailyEarningsCents: computeAvgDailyEarningsCents(totalEarningsCents, onDurationMs),
+      };
+    }),
   });
 }
