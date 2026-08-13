@@ -87,7 +87,13 @@ function LoginForm() {
       </form>
 
       <p className="mt-5 text-center text-xs text-[#707070]">
-        Bought the program? Check your email for a temporary password.
+        If you&rsquo;re having trouble logging in, please reach out to{" "}
+        <a
+          href="mailto:krystal@staratlasportal.com"
+          className="text-[#32B5FF] underline-offset-2 hover:underline"
+        >
+          krystal@staratlasportal.com
+        </a>
       </p>
     </GlassCard>
   );
@@ -95,26 +101,58 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[#121212] px-4">
-      {/* Login branding: single shared /public/star-atlas-logo.png asset,
-          shown larger here (above the form) than the compact Sidebar
-          version -- same object-contain treatment preserves the source
-          image's own aspect ratio (never cropped/stretched/distorted).
-          Responsive width (clamped, not a fixed huge box) keeps this
-          usable on small mobile viewports without pushing the form
-          below the fold; the form itself is untouched below and stays
-          centered either way. */}
-      <Image
-        src="/star-atlas-logo.png"
-        alt="STAR ATLAS Rewards Network"
-        width={1448}
-        height={1086}
-        className="h-auto w-40 object-contain sm:w-48"
-        priority
+    <div className="relative flex min-h-screen flex-col items-center justify-center gap-6 overflow-hidden bg-[#050507] px-4">
+      {/* Full-page deep-space background (public/galaxy-bg.png): a single
+          realistic galaxy/nebula photo, covered + centered so it always
+          fills the viewport without distortion at any aspect ratio.
+          Rendered as a plain CSS background (not next/image) since it's
+          a full-bleed decorative backdrop, not content -- avoids layout
+          shift concerns and keeps this a simple background-position/size
+          tweak if the asset is ever swapped. A dark radial overlay sits
+          on top so the centered login card always stays readable
+          regardless of which part of the image lands behind it. */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 bg-cover bg-center"
+        style={{ backgroundImage: "url(/galaxy-bg.png)" }}
       />
-      <Suspense fallback={null}>
-        <LoginForm />
-      </Suspense>
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 bg-black/55"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, rgba(5,5,8,0.35) 0%, rgba(5,5,8,0.75) 65%, rgba(5,5,8,0.92) 100%)",
+        }}
+      />
+
+      <div className="relative z-10 flex flex-col items-center gap-6">
+        {/* Login branding: single shared /public/star-atlas-logo.png
+            asset, shown larger here (above the form) than the compact
+            Sidebar version -- same object-contain treatment preserves
+            the source image's own aspect ratio (never cropped/stretched/
+            distorted). Responsive width (clamped, not a fixed huge box)
+            keeps this usable on small mobile viewports without pushing
+            the form below the fold; the form itself is untouched below
+            and stays centered either way. */}
+        <div className="flex flex-col items-center gap-2">
+          <Image
+            src="/star-atlas-logo.png"
+            alt="STAR ATLAS Rewards Network"
+            width={1448}
+            height={1086}
+            className="h-auto w-40 object-contain sm:w-48"
+            priority
+          />
+          <h1
+            className="text-center text-2xl font-bold uppercase tracking-[0.35em] text-white [text-shadow:0_0_18px_rgba(50,181,255,0.55),0_0_2px_rgba(255,255,255,0.6)] sm:text-3xl"
+          >
+            Star Atlas
+          </h1>
+        </div>
+        <Suspense fallback={null}>
+          <LoginForm />
+        </Suspense>
+      </div>
     </div>
   );
 }

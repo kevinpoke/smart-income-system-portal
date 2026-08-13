@@ -26,6 +26,8 @@ import { isAllowedImageMimeLabel } from "@/lib/uploadClientHelpers";
 // containing-block chain entirely, so `fixed inset-0` now always means
 // the real viewport regardless of which ancestor triggered this modal,
 // on every page and at every viewport size.
+const MIN_PASSWORD_LENGTH = 8;
+
 export default function ProfileModal({ account, onClose }) {
   const { refetch } = useAccount();
   const [firstName, setFirstName] = useState(account?.firstName || "");
@@ -38,6 +40,20 @@ export default function ProfileModal({ account, onClose }) {
   const [photoError, setPhotoError] = useState("");
   const [previewUrl, setPreviewUrl] = useState(account?.profilePhotoUrl || null);
   const fileInputRef = useRef(null);
+
+  // Password reset: current/new/confirm fields, wired into the existing
+  // /api/auth/change-password route (verifies currentPassword against the
+  // stored scrypt hash server-side, then re-hashes newPassword via
+  // lib/auth-crypto.js -- see app/api/auth/change-password/route.js).
+  // Nothing here ever sees or sends a raw hash; only plaintext passwords
+  // travel over the (same-origin, session-cookie-authenticated) request,
+  // exactly like the existing login form.
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSaved, setPasswordSaved] = useState(false);
 
   const applyUpdatedAccount = useCallback(async () => {
     await refetch();
@@ -136,6 +152,47 @@ export default function ProfileModal({ account, onClose }) {
     }
   }
 
+  async function handleChangePassword(e) {
+    e.preventDefault();
+    setPasswordError("");
+    setPasswordSaved(false);
+
+    if (!currentPassword) {
+      setPasswordError("Current password is required.");
+      return;
+    }
+    if (!newPassword || newPassword.length < MIN_PASSWORD_LENGTH) {
+      setPasswordError(`New password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New password and confirmation do not match.");
+      return;
+    }
+
+    setSavingPassword(true);
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPasswordError(data.error || "Unable to update password.");
+        return;
+      }
+      setPasswordSaved(true);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch {
+      setPasswordError("Something went wrong. Please try again.");
+    } finally {
+      setSavingPassword(false);
+    }
+  }
+
   if (typeof document === "undefined") return null;
 
   return createPortal(
@@ -226,6 +283,60 @@ export default function ProfileModal({ account, onClose }) {
             </GhostButton>
             <AccentButton type="submit" disabled={savingName} className="flex-1">
               {savingName ? "Saving…" : "Save"}
+            </AccentButton>
+          </div>
+        </form>
+
+        <div className="my-6 border-t border-white/10" />
+
+        <h4 className="mb-3 text-sm font-bold text-white">Change Password</h4>
+        <form onSubmit={handleChangePassword} className="space-y-3">
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#B0B0B0]">Current Password</span>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#B0B0B0]">New Password</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#B0B0B0]">Confirm New Password</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
+            />
+          </label>
+          <div className="text-[10px] text-[#707070]">
+            Minimum {MIN_PASSWORD_LENGTH} characters.
+          </div>
+          {passwordError && (
+            <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+              {passwordError}
+            </div>
+          )}
+          {passwordSaved && !passwordError && (
+            <div className="rounded-lg bg-green-500/10 px-3 py-2 text-xs text-green-400">
+              Password updated.
+            </div>
+          )}
+          <div className="flex justify-end pt-1">
+            <AccentButton type="submit" disabled={savingPassword} className="w-full sm:w-auto">
+              {savingPassword ? "Updating…" : "Update Password"}
             </AccentButton>
           </div>
         </form>

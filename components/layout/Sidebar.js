@@ -65,7 +65,21 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="fixed left-0 top-0 z-40 hidden h-screen w-64 flex-col border-r border-white/10 bg-[#161616]/80 backdrop-blur-xl lg:flex">
+    <aside className="fixed left-0 top-0 z-40 hidden h-screen w-64 flex-col overflow-hidden border-r border-white/10 lg:flex">
+      {/* Same deep-space visual language as the login page
+          (public/galaxy-bg.png), covered + centered behind the nav
+          content. A dark tint + backdrop-blur on top keeps nav
+          labels/icons and the active-state highlight fully legible --
+          this pair of absolutely-positioned layers paints first, and the
+          `.relative` wrapper below naturally stacks above them without
+          needing an explicit z-index. */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 bg-cover bg-center"
+        style={{ backgroundImage: "url(/galaxy-bg.png)" }}
+      />
+      <div aria-hidden="true" className="absolute inset-0 bg-[#0c0c10]/80 backdrop-blur-xl" />
+      <div className="relative flex h-full flex-col">
       <div className="flex items-center gap-2 px-6 py-6">
         {/* Sidebar branding: single shared /public/star-atlas-logo.png
             asset, object-contain so the source image's own aspect ratio
@@ -166,6 +180,7 @@ export default function Sidebar() {
           <LogOut className="h-[18px] w-[18px]" />
           {loggingOut ? "Logging out…" : "Logout"}
         </button>
+      </div>
       </div>
     </aside>
   );
