@@ -43,8 +43,8 @@ import {
 
 const RECONNECT_DURATION_MS = 20000; // exactly 20 seconds, per spec -- must match lib/wifiEngine.js
 const RECONNECT_SUCCESS_COPY =
-  "You have successfully connected to the STAR ATLAS Network. You may now resume your estimated earnings.";
-const RECONNECT_PROGRESS_COPY = "Establishing a Secure Connection to the STAR ATLAS Network…";
+  "You have successfully connected to the Smart Income System Network. You may now resume your estimated earnings.";
+const RECONNECT_PROGRESS_COPY = "Establishing a Secure Connection to the Smart Income System Network…";
 
 
 function CustomTooltip({ active, payload, label }) {
@@ -346,7 +346,7 @@ function WifiToggleCard({ summary, refetch }) {
         <div className="text-xs text-[#707070]">
           {eligible ? (
             <>
-              Disconnect your WiFi from the STAR ATLAS Network at any time. Disabling the
+              Disconnect your WiFi from the Smart Income System Network at any time. Disabling the
               connection will immediately pause earnings accrual. No earnings will be
               credited for the time your WiFi was disconnected.
             </>

@@ -7,10 +7,10 @@ import { GlassCard, AccentButton } from "@/components/ui/Primitives";
 
 // This page renders OUTSIDE the (portal) route group's layout, so it never
 // receives the authenticated app shell (Sidebar/Header/MobileNav/
-// ChatWidget) -- only the StarAtlas branding + login form below. proxy.js
-// also treats /login as the one public page, so an authenticated session
-// visiting /login still only sees this form (no redirect loop, no shell
-// leak either way).
+// ChatWidget) -- only the Smart Income System branding + login form below.
+// proxy.js also treats /login as the one public page, so an authenticated
+// session visiting /login still only sees this form (no redirect loop, no
+// shell leak either way).
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -89,10 +89,10 @@ function LoginForm() {
       <p className="mt-5 text-center text-xs text-[#707070]">
         If you&rsquo;re having trouble logging in, please reach out to{" "}
         <a
-          href="mailto:krystal@staratlasportal.com"
+          href="mailto:support@smartincomesystem.com"
           className="text-[#32B5FF] underline-offset-2 hover:underline"
         >
-          krystal@staratlasportal.com
+          support@smartincomesystem.com
         </a>
       </p>
     </GlassCard>
@@ -126,28 +126,26 @@ export default function LoginPage() {
       />
 
       <div className="relative z-10 flex flex-col items-center gap-6">
-        {/* Login branding: single shared /public/star-atlas-logo.png
-            asset, shown larger here (above the form) than the compact
-            Sidebar version -- same object-contain treatment preserves
-            the source image's own aspect ratio (never cropped/stretched/
+        {/* Login branding: FULL Smart Income System lockup
+            (/public/smart-income-logo.png -- icon + wordmark in one
+            image), shown larger here (above the form) than the compact
+            icon-only Sidebar/MobileNav mark. object-contain preserves the
+            source image's own aspect ratio (never cropped/stretched/
             distorted). Responsive width (clamped, not a fixed huge box)
             keeps this usable on small mobile viewports without pushing
             the form below the fold; the form itself is untouched below
-            and stays centered either way. */}
+            and stays centered either way. No separate text heading here
+            -- the full logo already carries the "SMART INCOME SYSTEM"
+            wordmark, so a second text copy would just duplicate it. */}
         <div className="flex flex-col items-center gap-2">
           <Image
-            src="/star-atlas-logo.png"
-            alt="STAR ATLAS Rewards Network"
-            width={1448}
-            height={1086}
-            className="h-auto w-40 object-contain sm:w-48"
+            src="/smart-income-logo.png"
+            alt="Smart Income System"
+            width={1315}
+            height={571}
+            className="h-auto w-64 object-contain sm:w-80"
             priority
           />
-          <h1
-            className="text-center text-2xl font-bold uppercase tracking-[0.35em] text-white [text-shadow:0_0_18px_rgba(50,181,255,0.55),0_0_2px_rgba(255,255,255,0.6)] sm:text-3xl"
-          >
-            Star Atlas
-          </h1>
         </div>
         <Suspense fallback={null}>
           <LoginForm />

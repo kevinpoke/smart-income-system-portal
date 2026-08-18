@@ -226,7 +226,7 @@ export default function ModulesPage() {
         title="Modules"
         subtitle={
           <>
-            Please watch all the videos below to deepen your understanding of StarAtlas and learn
+            Please watch all the videos below to deepen your understanding of Smart Income System and learn
             how to maximize both your earnings and your contribution to the network.
             <br />
             <br />

@@ -81,26 +81,26 @@ export default function Sidebar() {
       <div aria-hidden="true" className="absolute inset-0 bg-[#0c0c10]/80 backdrop-blur-xl" />
       <div className="relative flex h-full flex-col">
       <div className="flex items-center gap-2 px-6 py-6">
-        {/* Sidebar branding: single shared /public/star-atlas-logo.png
-            asset, object-contain so the source image's own aspect ratio
-            is always preserved (never cropped/stretched/distorted).
-            Fixed compact box sized for the Sidebar rail -- readable at
-            this size on both desktop (this Sidebar) and mobile (see
-            components/layout/MobileNav.js for the same asset used
-            there). Text-only branding is fully replaced by the logo per
-            spec; no duplicate second copy of the image anywhere on this
-            page. */}
+        {/* Sidebar branding: ICON-ONLY Smart Income System mark
+            (/public/smart-income-icon.png -- just the phone/growth-arrow
+            mark, no wordmark baked into the image) at compact Sidebar
+            size, paired with the brand name as real UI text alongside it
+            (not part of the image) per the icon-only placement spec.
+            object-contain so the source image's own aspect ratio is
+            always preserved (never cropped/stretched/distorted). Same
+            icon asset is reused in MobileNav-adjacent contexts for a
+            consistent compact mark across desktop and mobile. */}
         <Image
-          src="/star-atlas-logo.png"
-          alt="STAR ATLAS Rewards Network"
-          width={1448}
-          height={1086}
+          src="/smart-income-icon.png"
+          alt="Smart Income System"
+          width={392}
+          height={571}
           className="h-10 w-auto flex-shrink-0 object-contain"
           priority
         />
         <div>
           <div className="text-sm font-bold leading-tight text-white">
-            STAR ATLAS
+            SMART INCOME SYSTEM
           </div>
           <div className="text-[11px] leading-tight text-[#B0B0B0]">
             Rewards Network

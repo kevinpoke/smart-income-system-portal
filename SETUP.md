@@ -59,13 +59,13 @@ function hashPassword(password) {
 const { hash, salt } = hashPassword('AdminPass123');
 const id = 'acct_admin_' + crypto.randomBytes(6).toString('hex');
 db.prepare('INSERT OR IGNORE INTO accounts (id, email, name, password_hash, password_salt, must_change_password, role, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)')
-  .run(id, 'admin@staratlas.local', 'Admin', hash, salt, 'admin', new Date().toISOString());
-console.log('admin account ready: admin@staratlas.local / AdminPass123');
+  .run(id, 'admin@smartincomesystem.local', 'Admin', hash, salt, 'admin', new Date().toISOString());
+console.log('admin account ready: admin@smartincomesystem.local / AdminPass123');
 "
 ```
 
 Then log in at http://localhost:3000/login with:
-- **Email:** `admin@staratlas.local`
+- **Email:** `admin@smartincomesystem.local`
 - **Password:** `AdminPass123`
 
 ## 4. Test the purchase webhook flow

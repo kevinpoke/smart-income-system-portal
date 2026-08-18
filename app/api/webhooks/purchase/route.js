@@ -49,10 +49,10 @@ export async function POST(request) {
      VALUES (?, ?, ?, ?, ?, 1, 'customer', ?)`
   ).run(id, email, name, hash, salt, new Date().toISOString());
 
-  const subject = "Your Star Atlas Rewards Portal login";
+  const subject = "Your Smart Income System Rewards Portal login";
   const text = `Hi ${name},
 
-Thanks for your purchase! Your Star Atlas Rewards Portal account is ready.
+Thanks for your purchase! Your Smart Income System Rewards Portal account is ready.
 
 Login: ${process.env.APP_URL || "http://localhost:3000"}/login
 Email: ${email}
@@ -60,7 +60,7 @@ Temporary password: ${tempPassword}
 
 Please log in and change your password from your account settings.
 
-— Star Atlas Team`;
+— Smart Income System Team`;
 
   const mailResult = await sendEmail({ to: email, subject, text });
 

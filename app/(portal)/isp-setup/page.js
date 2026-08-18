@@ -59,7 +59,7 @@ function ConnectionProgress({ startedAt, onDone, onError }) {
     <GlassCard className="flex flex-col items-center gap-5 px-6 py-14 text-center">
       <ShieldCheck className="h-12 w-12 animate-pulse text-[#32B5FF]" />
       <h2 className="text-lg font-bold text-white">
-        Establishing a Secure Connection to the StarAtlas Network…
+        Establishing a Secure Connection to the Smart Income System Network…
       </h2>
       <div className="w-full max-w-md">
         <div className="h-3 w-full overflow-hidden rounded-full bg-white/10">
@@ -224,7 +224,7 @@ export default function IspSetupPage() {
             <CheckCircle2 className="h-12 w-12 text-green-400" />
             <h2 className="text-xl font-bold text-white">Your Node is Active</h2>
             <p className="mx-auto mt-2 max-w-lg px-2 text-sm leading-relaxed text-[#B0B0B0]">
-              Your WiFi has been successfully connected to the StarAtlas
+              Your WiFi has been successfully connected to the Smart Income System
               Network. Visit your Dashboard to monitor your earnings and
               connection status.
             </p>
@@ -259,7 +259,7 @@ export default function IspSetupPage() {
               <CheckCircle2 className="h-12 w-12 text-green-400" />
               <h2 className="text-xl font-bold text-white">Your Node is Active</h2>
               <p className="mx-auto mt-2 max-w-lg px-2 text-sm leading-relaxed text-[#B0B0B0]">
-                Your WiFi has been successfully connected to the StarAtlas
+                Your WiFi has been successfully connected to the Smart Income System
                 Network. Visit your Dashboard to monitor your earnings and
                 connection status.
               </p>
@@ -277,7 +277,7 @@ export default function IspSetupPage() {
             <ShieldCheck className="h-12 w-12 text-[#32B5FF]" />
             <div className="mx-auto max-w-lg px-2">
               <h2 className="text-xl font-bold text-white leading-snug">
-                Do you authorize us to connect your WiFi to the StarAtlas
+                Do you authorize us to connect your WiFi to the Smart Income System
                 Network?
               </h2>
             </div>
@@ -308,7 +308,7 @@ export default function IspSetupPage() {
             <Clock3 className="h-12 w-12 animate-pulse text-[#32B5FF]" />
             <div className="mx-auto max-w-lg px-2">
               <h2 className="text-xl font-bold text-white leading-snug">
-                We&rsquo;re currently connecting your WiFi to the StarAtlas
+                We&rsquo;re currently connecting your WiFi to the Smart Income System
                 Network.
               </h2>
               <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-[#B0B0B0]">
@@ -340,7 +340,7 @@ export default function IspSetupPage() {
       <SectionTitle
         eyebrow="Step 1 of 1"
         title="ISP Setup"
-        subtitle="Connect your home network to the StarAtlas Rewards Network."
+        subtitle="Connect your home network to the Smart Income System Rewards Network."
       />
       <FadeIn>
         <GlassCard className="p-6 sm:p-10">

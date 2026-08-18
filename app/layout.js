@@ -7,7 +7,7 @@ import "./globals.css";
 // login screen show only the login card and nothing from the authenticated
 // shell (no sidebar, header, connection status, nav, dashboard content).
 export const metadata = {
-  title: "Star Atlas Rewards Portal",
+  title: "Smart Income System Portal",
   description: "Earn passive income by sharing your unused internet bandwidth.",
 };
 

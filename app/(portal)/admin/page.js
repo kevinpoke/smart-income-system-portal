@@ -527,7 +527,7 @@ function AccountRow({
           guard omitted this cell entirely for admin/non-customer rows,
           giving them one FEWER <td> than customer rows and visually
           shifting every subsequent column left by one slot for the
-          admin@staratlas.local row specifically (the only non-customer
+          admin@smartincomesystem.local row specifically (the only non-customer
           row normally visible in User Management). Every row must have
           the exact same number of <td> elements so the header/body
           columns always line up -- for non-selectable rows the cell
