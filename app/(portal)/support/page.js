@@ -130,7 +130,7 @@ export default function SupportPage() {
       <SectionTitle
         eyebrow="Help"
         title="Support"
-        subtitle="Chat with our team about your node, payouts, or account."
+        subtitle="Chat with our team about your bridge, payouts, or account."
       />
       <FadeIn>
         <GlassCard className="flex h-[560px] flex-col overflow-hidden">

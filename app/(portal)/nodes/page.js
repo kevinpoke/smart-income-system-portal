@@ -18,7 +18,7 @@ import { Server, Zap, Wifi, Clock3, CheckCircle2, Sparkles } from "lucide-react"
 import { AnimatePresence, motion } from "framer-motion";
 
 const WAITLIST_MODAL_COPY =
-  "You have been added to the waitlist. As additional Nodes become available, a support representative will contact you directly when you are eligible to add more Nodes to your account. Until then, please remain on standby for further updates.";
+  "You have been added to the waitlist. As additional Bridges become available, a support representative will contact you directly when you are eligible to add more Bridges to your account. Until then, please remain on standby for further updates.";
 
 function WaitlistJoinedModal({ onClose }) {
   return (
@@ -181,23 +181,23 @@ export default function NodesPage() {
   if (accountLoading || loading) {
     return (
       <div className="space-y-6">
-        <SectionTitle eyebrow="Marketplace" title="Nodes" />
+        <SectionTitle eyebrow="Marketplace" title="Data Bridges" />
       </div>
     );
   }
 
   // Server-enforced restriction mirrored client-side: before ISP Setup is
-  // completed and approved, the Nodes section is inaccessible and shows
-  // the same "Location Required" locked-state card used in Payouts.
+  // completed and approved, the Data Bridges section is inaccessible and
+  // shows the same "Location Required" locked-state card used in Payouts.
   if (locked) {
     return (
       <div className="space-y-6">
         <SectionTitle
           eyebrow="Marketplace"
-          title="Nodes"
-          subtitle="Premium node inventory in high demand — most sell out within hours."
+          title="Data Bridges"
+          subtitle="Premium Bridge inventory in high demand — most sell out within hours."
         />
-        <LocationRequiredCard body="Complete your ISP Setup to unlock the Nodes marketplace for your area." />
+        <LocationRequiredCard body="Complete your ISP Setup to unlock the Data Bridges marketplace for your area." />
       </div>
     );
   }
@@ -207,8 +207,8 @@ export default function NodesPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <SectionTitle
           eyebrow="Marketplace"
-          title="Nodes"
-          subtitle="Premium node inventory in high demand — most sell out within hours."
+          title="Data Bridges"
+          subtitle="Premium Bridge inventory in high demand — most sell out within hours."
         />
         <WaitlistButton />
       </div>
@@ -216,10 +216,10 @@ export default function NodesPage() {
       <FadeIn>
         <GlassCard className="p-5">
           <p className="max-w-3xl text-sm leading-relaxed text-[#B0B0B0]">
-            Premium Node inventory is in high demand, and most Nodes sell out
-            within hours. Listed below are the Nodes currently available for
-            purchase in your area. To ensure fair access for all members,
-            purchases are limited to five Nodes per member.
+            Premium Bridge inventory is in high demand, and most Bridges sell
+            out within hours. Listed below are the Bridges currently
+            available for purchase in your area. To ensure fair access for
+            all members, purchases are limited to five Bridges per member.
           </p>
         </GlassCard>
       </FadeIn>
@@ -230,9 +230,9 @@ export default function NodesPage() {
             <table className="w-full min-w-[900px] text-sm">
               <thead>
                 <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
-                  <th className="px-4 py-3">Node ID</th>
+                  <th className="px-4 py-3">Bridge ID</th>
                   <th className="px-4 py-3">Location</th>
-                  <th className="px-4 py-3">Node Tier</th>
+                  <th className="px-4 py-3">Bridge Tier</th>
                   <th className="px-4 py-3">IP Address</th>
                   <th className="px-4 py-3 text-right">Est. Monthly Earnings</th>
                   <th className="px-4 py-3 text-right">Cost</th>

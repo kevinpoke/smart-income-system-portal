@@ -24,7 +24,7 @@ const NAV_ITEMS = [
   { href: "/modules", label: "Modules", icon: PlayCircle },
   { href: "/isp-setup", label: "ISP Setup", icon: Wifi },
   { href: "/payouts", label: "Payouts", icon: Wallet },
-  { href: "/nodes", label: "Nodes", icon: Server },
+  { href: "/nodes", label: "DATA BRIDGES", icon: Server },
   { href: "/withdrawals", label: "Withdrawals", icon: Banknote },
   { href: "/support", label: "Support", icon: LifeBuoy },
 ];

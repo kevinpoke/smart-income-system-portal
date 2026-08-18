@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { useEarningsSummary } from "@/lib/useEarningsSummary";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
+import { getFourHourBucketKey } from "@/lib/fourHourBucket";
 import { notifyAccountChanged } from "@/lib/accountEvents";
 import { useSteppedConnectionProgress } from "@/lib/useSteppedConnectionProgress";
 import {
@@ -66,7 +67,7 @@ function InactiveState() {
         <Sparkles className="h-10 w-10 text-[#32B5FF]" />
         <div>
           <h2 className="text-xl font-bold text-white">
-            Your Node Isn&apos;t Earning Yet
+            Your Bridge Isn&apos;t Earning Yet
           </h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-[#B0B0B0]">
             Complete your ISP Setup and get your participation approved to
@@ -84,62 +85,100 @@ function InactiveState() {
   );
 }
 
+// ---- 4-hour dashboard display freeze ------------------------------------
+//
+// Per spec section 1: customer-facing dashboard stat/earnings values must
+// visibly update once every 4 hours, not continuously. This is
+// implemented as a pure client-side DISPLAY snapshot (chosen approach:
+// (A) client-side bucket-key freeze, see lib/fourHourBucket.js's header
+// comment for the full rationale) -- it never changes what the server
+// computes/accrues, only what the Dashboard chooses to RENDER:
+//
+//   - The server (`useEarningsSummary`, still polling independently under
+//     the hood every ~15s) keeps computing 100%-accurate live numbers via
+//     lib/earningsEngine.js computeEarningsSummary(), completely untouched.
+//   - `useFrozenEarningsSummary` below snapshots that summary into React
+//     state keyed by `getFourHourBucketKey(Date.now())`. The snapshot is
+//     only replaced with a FRESH summary when the bucket key changes (a
+//     new 4-hour wall-clock window has begun) -- within the same window,
+//     repeated polls/re-renders keep returning the exact same frozen
+//     object, so every value derived from it (Live/Today/Lifetime/Week/
+//     Month, and the per-Bridge Total Earnings column) is bit-for-bit
+//     identical across the whole 4-hour window.
+//   - No continuous client-side interpolation/spring-ticking is applied
+//     to these frozen numbers between bucket boundaries; AnimatedNumber's
+//     spring is left in place purely to smooth the single jump AT a
+//     bucket boundary (a barely-noticeable animation once every 4 hours),
+//     never to simulate continuous accrual.
+//   - Nothing here writes to, or reads differently from, the ledger --
+//     runEarningsCatchup/cycle-boundary/WiFi-gating math in
+//     lib/earningsEngine.js is entirely unchanged, so no accrued earnings
+//     are ever lost; they simply aren't reflected in the customer UI
+//     until the next 4-hour bucket rolls over.
+//   - The admin portal (app/(portal)/admin/page.js) never imports this
+//     hook and keeps rendering summary values live/directly, per spec
+//     ("Admin-side data should remain accurate/live").
+//
+// `hasMounted` gates the Date.now()-driven bucket key exactly like every
+// other Date.now()-dependent value in this codebase (see
+// lib/useHasMounted.js) -- before mount, the hook returns the raw summary
+// unmodified (matching the server-rendered HTML), and only begins
+// freezing-by-bucket once the first client effect has run.
+function useFrozenEarningsSummary(summary, hasMounted) {
+  const [frozen, setFrozen] = useState({ bucketKey: null, summary: null });
+
+  useEffect(() => {
+    if (!hasMounted || !summary) return;
+    const currentBucketKey = getFourHourBucketKey(Date.now());
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- bucket-snapshot bookkeeping, not a render-triggering side effect
+    setFrozen((prev) => {
+      // Same 4-hour window as the last snapshot: keep the OLD frozen
+      // summary (never adopt the freshly-polled one yet), so the
+      // rendered numbers stay bit-for-bit identical until the bucket
+      // rolls over.
+      if (prev.bucketKey === currentBucketKey && prev.summary) return prev;
+      return { bucketKey: currentBucketKey, summary };
+    });
+  }, [summary, hasMounted]);
+
+  if (!hasMounted || !frozen.summary) {
+    // Before mount (SSR / first client paint) or before the first
+    // snapshot has been taken: fall back to the live summary directly so
+    // there is never a blank/stale flash on first load, and so
+    // SSR/first-client-render always agree (matches every other
+    // hasMounted-gated value in this file).
+    return summary;
+  }
+  return frozen.summary;
+}
+
 // Live Earnings interpolates smoothly BETWEEN server polls. The server
 // (lib/earningsEngine.js computeEarningsSummary) is the ONLY source of
 // truth: `summary.lifetimeEarningsCents` is every completed prior cycle's
 // real ledger total, and `summary.todayAccruedCents` is the current
-// cycle's WiFi-gated accrual as of the last poll. This hook NEVER invents
-// independent progress -- it only fills the small gap between polls by
-// projecting forward from the server-confirmed `todayAccruedCents` at the
-// same per-ms rate the server itself uses (`todaysExpectedCents` spread
-// evenly across the full cycle duration), clamped so it can never exceed
-// `todaysExpectedCents` and so it never drifts far ahead of what the next
-// poll (every 15s -- see lib/useEarningsSummary.js) will confirm.
+// cycle's WiFi-gated accrual as of the last poll.
 //
-// Phase 5 correction (fixes the "jumps to full amount / freezes at ~$90"
-// bug): the PREVIOUS implementation computed elapsedMs directly against
-// wall-clock `now` and assumed a full, uninterrupted 24h day of uptime
-// (`fractionOfDay = elapsedMs / 86400000`), completely ignoring
-// `summary.wifiEnabled` and `summary.todayAccruedCents`. That is why it
-// reached the full daily amount regardless of actual connected time (100%
-// uptime assumption) and never responded to the WiFi toggle. The fix:
-// interpolate forward from the server's own already-WiFi-gated
-// `todayAccruedCents`, and freeze immediately (return the server-confirmed
-// total with zero further addition) whenever `summary.wifiEnabled` is
-// false.
+// 4-hour dashboard-freeze pass: this hook is now fed the FROZEN summary
+// (see useFrozenEarningsSummary above), not the raw live-polled summary,
+// and its own continuous per-ms forward projection has been REMOVED --
+// it previously projected `todaysExpectedCents` forward every ~100ms
+// (via `now` ticking from lib/useLiveClock.js) so the number visibly
+// ticked upward in real time, which is exactly the continuous-ticking
+// behavior the spec now prohibits for the customer-facing Dashboard.
+// This now simply returns the frozen summary's own already-computed
+// `todayAccruedCents`/`lifetimeEarningsCents` as-is -- the numbers only
+// change when the frozen summary itself changes (i.e. once per 4-hour
+// bucket, see useFrozenEarningsSummary), never between polls/ticks.
 //
-// Dashboard adjustment pass: also freezes while a reconnection is in
-// progress (`summary.wifiReconnectStartedAt` set) -- the account is still
-// wifi_enabled = 0 server-side during that 20-second window, so
-// `summary.wifiEnabled` is already false throughout, meaning this freeze
-// falls out of the SAME `!summary.wifiEnabled` branch below without any
-// separate reconnecting-specific code path.
+// Returns { interpolatedTodayCents, lifetimeCents } (name kept for
+// minimal call-site churn) so every Dashboard number that must move in
+// lockstep (the four summary cards AND each Bridge's "Total Earnings"
+// contribution) still derives from this ONE function, never a second
+// independently-computed number that could drift out of sync.
 //
-// Returns { interpolatedTodayCents, lifetimeCents } so every Dashboard
-// number that must move in lockstep with Live Earnings (the four summary
-// cards AND each Node's live "Total Earnings" contribution) can derive
-// from this ONE interpolation, never a second independently-computed
-// live number that could drift out of sync.
-//
-// `hasMounted` gates the Date.now()-driven projection: before mount (i.e.
-// during SSR and the first client render) this returns the static,
-// summary-only totals (no live interpolation), so the server-rendered
-// HTML and the first client render always agree. Once mounted, the live
-// per-second ticking projection kicks in.
-function useLiveEarnings(summary, now, hasMounted) {
-  const [baseline, setBaseline] = useState({ summary: null, atMs: 0 });
-
-  useEffect(() => {
-    // Records when this exact server-confirmed summary was first observed
-    // so the interpolation below can compute "how long has it been since
-    // the last poll" -- same fetch-on-change bookkeeping pattern used
-    // elsewhere in this app (see lib/useAccount.js).
-    if (summary) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- baseline bookkeeping, not a render-triggering side effect
-      setBaseline({ summary, atMs: Date.now() });
-    }
-  }, [summary]);
-
+// `hasMounted` gates against SSR/first-client-render disagreement exactly
+// as before.
+function useLiveEarnings(summary, hasMounted) {
   return useMemo(() => {
     if (!summary?.active) {
       return { interpolatedTodayCents: 0, lifetimeCents: 0 };
@@ -153,66 +192,27 @@ function useLiveEarnings(summary, now, hasMounted) {
       };
     }
 
-    // WiFi off (including "reconnecting", which keeps wifiEnabled false
-    // server-side for the full 20-second window): never project further
-    // increase -- literally just the last server-confirmed total, no
-    // client-side addition at all.
-    if (!summary.wifiEnabled) {
-      return {
-        interpolatedTodayCents: serverAccruedCents,
-        lifetimeCents: lifetimePriorCents + serverAccruedCents,
-      };
-    }
-
-    const cycleStartMs = new Date(summary.todayStartAt).getTime();
-    const cycleEndMs = summary.cycleEndAt
-      ? new Date(summary.cycleEndAt).getTime()
-      : cycleStartMs + 86400000;
-    const cycleDurationMs = Math.max(1, cycleEndMs - cycleStartMs);
-
-    // Baseline timestamp: the moment this exact `summary` object was
-    // first observed (set by the effect above, stored in state so it's
-    // safe to read during render). Falls back to `now` for the very
-    // first render of a brand-new summary, which correctly yields zero
-    // projected extra until the effect commits.
-    const baselineAtMs = baseline.summary === summary ? baseline.atMs : now;
-    const elapsedSincePollMs = Math.max(0, now - baselineAtMs);
-    const ratePerMs = (summary.todaysExpectedCents || 0) / cycleDurationMs;
-    const projectedExtraCents = elapsedSincePollMs * ratePerMs;
-
-    const interpolatedTodayCents = Math.min(
-      summary.todaysExpectedCents || 0,
-      serverAccruedCents + projectedExtraCents
-    );
-
+    // Frozen-summary snapshot's own already-WiFi-gated accrued total --
+    // no further client-side projection/addition on top of it. This
+    // naturally keeps freezing while WiFi is off/reconnecting (the
+    // frozen summary itself reflects whatever wifiEnabled state was
+    // true at the moment of the last snapshot) without any separate
+    // wifi-specific branch.
     return {
-      interpolatedTodayCents,
-      lifetimeCents: lifetimePriorCents + interpolatedTodayCents,
+      interpolatedTodayCents: serverAccruedCents,
+      lifetimeCents: lifetimePriorCents + serverAccruedCents,
     };
-  }, [summary, now, hasMounted, baseline]);
+  }, [summary, hasMounted]);
 }
+
 
 // Purely-visual "wobble" for the "Today's expected earnings ~$X (demo
-// estimate)" line: re-rolls a fresh multiplier in [0.95, 1.05] every
-// 5-10s. This is display-only jitter layered on top of the real
-// server-computed todaysExpectedCents -- it never touches the ledger or
-// any persisted value, and is gated behind hasMounted (via the caller)
-// so SSR/first-client-render never disagree.
-function useJitterMultiplier() {
-  const [multiplier, setMultiplier] = useState(1);
-  useEffect(() => {
-    let timeoutId;
-    function reroll() {
-      const next = 1 + (Math.random() * 2 - 1) * 0.05; // +/-5%
-      setMultiplier(next);
-      const delayMs = 5000 + Math.random() * 5000; // 5-10s
-      timeoutId = setTimeout(reroll, delayMs);
-    }
-    reroll();
-    return () => clearTimeout(timeoutId);
-  }, []);
-  return multiplier;
-}
+// estimate)" line has been REMOVED per the 4-hour dashboard-freeze spec
+// (section 1: "the marketplace Est. Monthly Earnings wobble should also
+// stop continuously fluctuating for consistency" -- applied here too for
+// the same reason). `todaysExpected` below now renders the frozen
+// summary's own stable `todaysExpectedCents` figure directly, with no
+// client-side jitter multiplier layered on top.
 
 function WifiToggleCard({ summary, refetch }) {
   const [pending, setPending] = useState(false);
@@ -465,21 +465,21 @@ function YourNodesSection({ nodes, loading }) {
       <GlassCard className="overflow-hidden">
         <div className="flex items-center gap-2 border-b border-white/10 px-5 py-4">
           <Server className="h-4 w-4 text-[#32B5FF]" />
-          <h3 className="text-sm font-semibold text-white">Your Nodes</h3>
+          <h3 className="text-sm font-semibold text-white">Your Bridges</h3>
         </div>
         {loading ? (
-          <div className="px-5 py-6 text-xs text-[#707070]">Loading your Nodes…</div>
+          <div className="px-5 py-6 text-xs text-[#707070]">Loading your Bridges…</div>
         ) : nodes.length === 0 ? (
           <div className="px-5 py-6 text-xs text-[#707070]">
-            You don&apos;t own any Nodes yet. Complete ISP Setup to get your first Node.
+            You don&apos;t own any Bridges yet. Complete ISP Setup to get your first Bridge.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[820px] text-sm">
               <thead>
                 <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
-                  <th className="px-4 py-3">Node ID</th>
-                  <th className="px-4 py-3">Node Type</th>
+                  <th className="px-4 py-3">Bridge ID</th>
+                  <th className="px-4 py-3">Bridge Type</th>
                   <th className="px-4 py-3">Location</th>
                   <th className="px-4 py-3 text-right">Avg Daily Earnings</th>
                   <th className="px-4 py-3 text-right">Total Earnings</th>
@@ -539,11 +539,20 @@ function YourNodesSection({ nodes, loading }) {
 }
 
 export default function DashboardPage() {
-  const { summary, loading, refetch } = useEarningsSummary(15000);
+  const { summary: liveSummary, loading, refetch } = useEarningsSummary(15000);
   const now = useLiveClock(100);
   const hasMounted = useHasMounted();
-  const jitter = useJitterMultiplier();
   const router = useRouter();
+
+  // 4-hour dashboard-freeze pass: `summary` used for every rendered
+  // number below is the FROZEN (bucket-snapshotted) summary, never the
+  // raw live-polled `liveSummary` directly -- see
+  // useFrozenEarningsSummary's header comment above for the full
+  // rationale. `refetch`/WiFi toggle actions still act on the live
+  // polling loop underneath (so a WiFi toggle's optimistic refetch still
+  // works immediately), they just don't force the DISPLAYED numbers to
+  // change until the next 4-hour bucket.
+  const summary = useFrozenEarningsSummary(liveSummary, hasMounted);
 
   const [nodes, setNodes] = useState([]);
   const [nodesLoading, setNodesLoading] = useState(true);
@@ -565,29 +574,33 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-    // Dashboard adjustment pass: re-fetch owned Nodes (and their live
+    // Dashboard adjustment pass: re-fetch owned Bridges (and their live
     // "Total Earnings") on every earnings-summary poll (~every 15s, see
     // lib/useEarningsSummary.js), not just when `active` flips -- so the
-    // per-Node Total Earnings column stays in sync with the rest of the
-    // Dashboard's live numbers instead of only updating when WiFi state
-    // changes.
-  }, [summary]);
+    // per-Bridge Total Earnings column stays in sync with the rest of the
+    // Dashboard's numbers instead of only updating when WiFi state
+    // changes. Note: this still re-fetches on every LIVE poll (not just
+    // every 4h) so the underlying data is fresh; it is the frozen
+    // `summary` above -- not this fetch cadence -- that governs what the
+    // customer visibly sees change.
+  }, [liveSummary]);
 
-  const { interpolatedTodayCents, lifetimeCents } = useLiveEarnings(summary, now, hasMounted);
-  const todaysExpectedRaw = centsToDollars(summary?.todaysExpectedCents);
-  const todaysExpected = hasMounted ? todaysExpectedRaw * jitter : todaysExpectedRaw;
+  const { interpolatedTodayCents, lifetimeCents } = useLiveEarnings(summary, hasMounted);
+  const todaysExpected = centsToDollars(summary?.todaysExpectedCents);
 
   // Dashboard adjustment pass: all four summary cards (Today/Week/Month/
   // Lifetime) now derive from the SAME `interpolatedTodayCents`/
   // `lifetimeCents` that drive the Live Earnings ticker -- never a
-  // second, independently-computed live number -- so they can never drift
-  // apart from Live Earnings, freeze together the instant WiFi goes off
-  // or a reconnection starts, and resume together once it completes.
-  // Week/Month add the CURRENT in-progress cycle's live interpolated
-  // amount on top of the completed-cycles total from the ledger (today's
-  // cycle is never itself written to the ledger until it completes, so
-  // without this addition "This Week"/"This Month" would silently exclude
-  // today's live progress). `live` (the hero "Live Earnings" number) IS
+  // second, independently-computed number -- so they can never drift
+  // apart from Live Earnings. Since `summary` here is already the frozen
+  // (bucket-snapshotted) summary, these four cards automatically only
+  // change once per 4-hour window along with everything else, with no
+  // separate freeze logic needed at this call site.
+  // Week/Month add the CURRENT in-progress cycle's frozen accrued amount
+  // on top of the completed-cycles total from the ledger (today's cycle
+  // is never itself written to the ledger until it completes, so without
+  // this addition "This Week"/"This Month" would silently exclude
+  // today's progress). `live` (the hero "Live Earnings" number) IS
   // `lifetimeCents` -- same value, just also bound to a local name for
   // readability at its render call site below.
   const live = centsToDollars(lifetimeCents);
@@ -634,7 +647,7 @@ export default function DashboardPage() {
       <SectionTitle
         eyebrow="Overview"
         title="Dashboard"
-        subtitle="Track your live node earnings and network performance."
+        subtitle="Track your Bridge earnings and network performance."
       />
 
       {!active ? (
@@ -758,7 +771,7 @@ export default function DashboardPage() {
                 <div>
                   <div className="text-sm font-semibold text-white">Next Payout</div>
                   <div className="text-xs text-[#B0B0B0]">
-                    Payouts run on a 4 month cycle from your Node connection
+                    Payouts run on a 4 month cycle from your Bridge connection
                     date.
                   </div>
                 </div>

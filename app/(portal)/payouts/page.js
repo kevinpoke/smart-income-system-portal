@@ -52,7 +52,7 @@ export default function PayoutsPage() {
       <SectionTitle
         eyebrow="Historical Data"
         title="Payouts"
-        subtitle="See what nodes near you have historically earned."
+        subtitle="See what bridges near you have historically earned."
       />
 
       {!loading && locked && (
@@ -71,7 +71,7 @@ export default function PayoutsPage() {
                   {loading ? "Loading location…" : `Average Payout for ${location || "Your Area"}`}
                 </div>
                 <div className="text-xs text-[#B0B0B0]">
-                  Based on the last 12 months of node activity in your area.
+                  Based on the last 12 months of bridge activity in your area.
                 </div>
               </div>
             </div>

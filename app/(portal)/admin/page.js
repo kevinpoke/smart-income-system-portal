@@ -598,23 +598,23 @@ function AccountRow({
             {account.primaryNodeTier ? (
               <NodeTierBadge tierKey={account.primaryNodeTierKey} tier={account.primaryNodeTier} />
             ) : (
-              <span className="text-xs text-[#707070]">No Node</span>
+              <span className="text-xs text-[#707070]">No Bridge</span>
             )}
             {account.nodeCount > 1 && (
               <span className="text-[10px] text-[#707070]">+{account.nodeCount - 1}</span>
             )}
             <button
               onClick={() => onOpenEditNodes(account)}
-              aria-label={`Edit Nodes for ${account.email}`}
-              title="Edit Nodes"
+              aria-label={`Edit Bridges for ${account.email}`}
+              title="Edit Bridges"
               className="flex h-6 w-6 items-center justify-center rounded-md bg-white/5 text-[#B0B0B0] hover:bg-white/10 hover:text-white"
             >
               <Pencil className="h-3 w-3" />
             </button>
             <button
               onClick={() => onOpenAddNode(account)}
-              aria-label={`Add Node for ${account.email}`}
-              title="Add Node"
+              aria-label={`Add Bridge for ${account.email}`}
+              title="Add Bridge"
               className="flex h-6 w-6 items-center justify-center rounded-md bg-white/5 text-[#B0B0B0] hover:bg-white/10 hover:text-white"
             >
               <Plus className="h-3 w-3" />
@@ -1033,7 +1033,7 @@ export default function AdminUsersPage() {
                 <th className="px-4 py-3">
                   <SortableHeader
                     column="node"
-                    label="Node"
+                    label="Bridge"
                     sortBy={sortBy}
                     sortDir={sortDir}
                     onSort={handleSort}

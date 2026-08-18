@@ -3,16 +3,20 @@
 import { useEffect, useRef, useState } from "react";
 import { GhostButton, AccentButton } from "@/components/ui/Primitives";
 import NodeTierBadge from "@/components/ui/NodeTierBadge";
-import { NODE_TIERS, TIER_KEYS } from "@/lib/nodeTiers";
+import { NODE_TIERS, TIER_KEYS, tierKeyToBridgeDisplayName } from "@/lib/nodeTiers";
 import { formatCurrency, centsToDollars } from "@/lib/mockData";
 import { Trash2 } from "lucide-react";
 
-// Edit Node popup: lists every owned Node for one customer account, each
-// with its own tier <select> + Save button scoped to that single Node
-// (never a page-wide "save all" -- editing one Node's tier must never
-// touch any other Node's row, matching the PATCH route's
+// Edit Bridge popup: lists every owned Bridge for one customer account,
+// each with its own tier <select> + Save button scoped to that single
+// Bridge (never a page-wide "save all" -- editing one Bridge's tier must
+// never touch any other Bridge's row, matching the PATCH route's
 // `WHERE id = ? AND account_id = ?` scoping in lib/ownedNodes.js
-// updateOwnedNodeTier()).
+// updateOwnedNodeTier()). Tier <select> OPTION LABELS show the new
+// customer/admin-facing Bridge names ("Bridge"/"Golden Bridge"/"XI
+// Bridge") via tierKeyToBridgeDisplayName() -- their underlying
+// `value`/tierKey attributes remain "standard"/"super"/"nova" unchanged,
+// per spec section 7.
 //
 // Rendered at the page level (app/(portal)/admin/page.js), outside the
 // <table>/<tbody> -- never as a direct child of a <tr>, matching the
@@ -33,7 +37,7 @@ export function EditNodePopup({ account, onClose, onChanged }) {
       const res = await fetch(`/api/admin/accounts/${account.id}/nodes`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Unable to load Nodes.");
+        setError(data.error || "Unable to load Bridges.");
         return;
       }
       setNodes(data.nodes || []);
@@ -65,7 +69,7 @@ export function EditNodePopup({ account, onClose, onChanged }) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Unable to update Node tier.");
+        setError(data.error || "Unable to update Bridge tier.");
         return;
       }
       await loadNodes();
@@ -77,18 +81,18 @@ export function EditNodePopup({ account, onClose, onChanged }) {
     }
   }
 
-  // Admin-only Remove Node: requires an explicit confirmation before
+  // Admin-only Remove Bridge: requires an explicit confirmation before
   // firing the DELETE request (per spec: "require a clear confirmation
   // before removal"), shows a per-row pending state while the request is
   // in flight (disables both the Save and Remove controls for that row
   // so a double-click can't fire two overlapping removal requests for
-  // the same Node), and on success reloads this popup's Node list AND
-  // notifies the parent (onChanged -> loadAccounts()) so the User
-  // Management row's Node column/count refreshes too -- "refresh the
+  // the same Bridge), and on success reloads this popup's Bridge list
+  // AND notifies the parent (onChanged -> loadAccounts()) so the User
+  // Management row's Bridge column/count refreshes too -- "refresh the
   // popup and User Management row after success."
   async function handleRemove(node) {
     const confirmed = window.confirm(
-      `Remove Node #${node.displayNodeId} for ${account.email}? This stops all future earnings for this Node but keeps its earnings history intact. This cannot be undone.`
+      `Remove Bridge #${node.displayNodeId} for ${account.email}? This stops all future earnings for this Bridge but keeps its earnings history intact. This cannot be undone.`
     );
     if (!confirmed) return;
     setRemovingNodeId(node.id);
@@ -99,7 +103,7 @@ export function EditNodePopup({ account, onClose, onChanged }) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Unable to remove Node.");
+        setError(data.error || "Unable to remove Bridge.");
         return;
       }
       await loadNodes();
@@ -124,7 +128,7 @@ export function EditNodePopup({ account, onClose, onChanged }) {
         onClick={(e) => e.stopPropagation()}
         className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-[#1E1E1E] p-6"
       >
-        <h3 className="mb-1 text-base font-bold text-white">Edit Nodes</h3>
+        <h3 className="mb-1 text-base font-bold text-white">Edit Bridges</h3>
         <p className="mb-4 text-xs text-[#707070]">{account.email}</p>
 
         {error && (
@@ -132,10 +136,10 @@ export function EditNodePopup({ account, onClose, onChanged }) {
         )}
 
         {loading ? (
-          <div className="py-6 text-center text-xs text-[#707070]">Loading Nodes…</div>
+          <div className="py-6 text-center text-xs text-[#707070]">Loading Bridges…</div>
         ) : nodes.length === 0 ? (
           <div className="py-6 text-center text-xs text-[#707070]">
-            This account has no Nodes yet.
+            This account has no Bridges yet.
           </div>
         ) : (
           <div className="space-y-3">
@@ -166,13 +170,13 @@ export function EditNodePopup({ account, onClose, onChanged }) {
                       onChange={(e) =>
                         setPendingTiers((prev) => ({ ...prev, [node.id]: e.target.value }))
                       }
-                      aria-label={`Tier for Node ${node.displayNodeId}`}
+                      aria-label={`Tier for Bridge ${node.displayNodeId}`}
                       disabled={removingNodeId === node.id}
                       className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF] disabled:opacity-50"
                     >
                       {TIER_KEYS.map((key) => (
                         <option key={key} value={key}>
-                          {NODE_TIERS[key].displayName}
+                          {tierKeyToBridgeDisplayName(key)}
                         </option>
                       ))}
                     </select>
@@ -184,7 +188,7 @@ export function EditNodePopup({ account, onClose, onChanged }) {
                     >
                       {savingNodeId === node.id ? "Saving…" : "Save"}
                     </button>
-                    {/* Node removal (User Management -> Remove Node):
+                    {/* Bridge removal (User Management -> Remove Bridge):
                         admin-only, requires confirmation (see
                         handleRemove above), shows a pending state, and
                         is disabled while a save is also in flight for
@@ -194,8 +198,8 @@ export function EditNodePopup({ account, onClose, onChanged }) {
                       type="button"
                       onClick={() => handleRemove(node)}
                       disabled={savingNodeId === node.id || removingNodeId === node.id}
-                      aria-label={`Remove Node ${node.displayNodeId} for ${account.email}`}
-                      title="Remove Node"
+                      aria-label={`Remove Bridge ${node.displayNodeId} for ${account.email}`}
+                      title="Remove Bridge"
                       className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-red-500/15 text-red-400 hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {removingNodeId === node.id ? (
@@ -221,7 +225,7 @@ export function EditNodePopup({ account, onClose, onChanged }) {
   );
 }
 
-// Add Node popup: tier selection + Confirm. Generates a fresh
+// Add Bridge popup: tier selection + Confirm. Generates a fresh
 // requestKey the moment the popup mounts (i.e. once per genuinely NEW
 // popup open -- the ref is created fresh every time this component is
 // mounted, since the parent only renders it when `addNodeModalAccount`
@@ -257,7 +261,7 @@ export function AddNodePopup({ account, onClose, onAdded }) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Unable to add Node.");
+        setError(data.error || "Unable to add Bridge.");
         return;
       }
       onAdded();
@@ -277,7 +281,7 @@ export function AddNodePopup({ account, onClose, onAdded }) {
         onClick={(e) => e.stopPropagation()}
         className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#1E1E1E] p-6"
       >
-        <h3 className="mb-1 text-base font-bold text-white">Add Node</h3>
+        <h3 className="mb-1 text-base font-bold text-white">Add Bridge</h3>
         <p className="mb-4 text-xs text-[#707070]">{account.email}</p>
 
         <div className="space-y-2">
@@ -302,7 +306,7 @@ export function AddNodePopup({ account, onClose, onAdded }) {
                     onChange={() => setTierKey(key)}
                     className="h-3.5 w-3.5 accent-[#32B5FF]"
                   />
-                  <NodeTierBadge tierKey={key} tier={tier.displayName} />
+                  <NodeTierBadge tierKey={key} tier={tierKeyToBridgeDisplayName(key)} />
                 </span>
                 <span className="font-mono text-xs text-[#B0B0B0]">
                   {formatCurrency(tier.minCents / 100)}–{formatCurrency(tier.maxCents / 100)}/mo

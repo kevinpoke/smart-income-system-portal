@@ -222,7 +222,7 @@ export default function IspSetupPage() {
         <FadeIn>
           <GlassCard className="flex flex-col items-center gap-3 px-6 py-16 text-center">
             <CheckCircle2 className="h-12 w-12 text-green-400" />
-            <h2 className="text-xl font-bold text-white">Your Node is Active</h2>
+            <h2 className="text-xl font-bold text-white">Your Bridge is Active</h2>
             <p className="mx-auto mt-2 max-w-lg px-2 text-sm leading-relaxed text-[#B0B0B0]">
               Your WiFi has been successfully connected to the Smart Income System
               Network. Visit your Dashboard to monitor your earnings and
@@ -257,7 +257,7 @@ export default function IspSetupPage() {
           <FadeIn>
             <GlassCard className="flex flex-col items-center gap-3 px-6 py-16 text-center">
               <CheckCircle2 className="h-12 w-12 text-green-400" />
-              <h2 className="text-xl font-bold text-white">Your Node is Active</h2>
+              <h2 className="text-xl font-bold text-white">Your Bridge is Active</h2>
               <p className="mx-auto mt-2 max-w-lg px-2 text-sm leading-relaxed text-[#B0B0B0]">
                 Your WiFi has been successfully connected to the Smart Income System
                 Network. Visit your Dashboard to monitor your earnings and
@@ -315,7 +315,7 @@ export default function IspSetupPage() {
                 Once your connection has been successfully configured,
                 you&rsquo;ll receive a confirmation email. Because each setup
                 is completed manually, please allow 1&ndash;3 business days
-                for us to allocate and activate your Node.
+                for us to allocate and activate your Bridge.
               </p>
             </div>
             {reviewTimeRemaining != null && (
