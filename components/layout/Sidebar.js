@@ -24,7 +24,7 @@ const NAV_ITEMS = [
   { href: "/modules", label: "Modules", icon: PlayCircle },
   { href: "/isp-setup", label: "ISP Setup", icon: Wifi },
   { href: "/payouts", label: "Payouts", icon: Wallet },
-  { href: "/nodes", label: "DATA BRIDGES", icon: Server },
+  { href: "/nodes", label: "Data Bridges", icon: Server },
   { href: "/withdrawals", label: "Withdrawals", icon: Banknote },
   { href: "/support", label: "Support", icon: LifeBuoy },
 ];
@@ -98,13 +98,8 @@ export default function Sidebar() {
           className="h-10 w-auto flex-shrink-0 object-contain"
           priority
         />
-        <div>
-          <div className="text-sm font-bold leading-tight text-white">
-            SMART INCOME SYSTEM
-          </div>
-          <div className="text-[11px] leading-tight text-[#B0B0B0]">
-            Rewards Network
-          </div>
+        <div className="text-sm font-bold leading-tight text-white">
+          SMART INCOME SYSTEM
         </div>
       </div>
 

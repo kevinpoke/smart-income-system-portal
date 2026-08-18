@@ -69,8 +69,8 @@ export default function Header() {
             )}
             <span aria-live="polite">
               {connected
-                ? "WiFi Connected to Smart Income System Network"
-                : "WiFi Not Connected to Smart Income System Network"}
+                ? "WiFi Connected to Smart Income System"
+                : "WiFi Not Connected to Smart Income System"}
             </span>
             {connected && (
               <span className="ml-1 rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-bold tracking-wider text-green-400">

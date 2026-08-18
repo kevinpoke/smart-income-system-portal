@@ -44,8 +44,8 @@ import {
 
 const RECONNECT_DURATION_MS = 20000; // exactly 20 seconds, per spec -- must match lib/wifiEngine.js
 const RECONNECT_SUCCESS_COPY =
-  "You have successfully connected to the Smart Income System Network. You may now resume your estimated earnings.";
-const RECONNECT_PROGRESS_COPY = "Establishing a Secure Connection to the Smart Income System Network…";
+  "You have successfully connected to the Smart Income System. You may now resume your estimated earnings.";
+const RECONNECT_PROGRESS_COPY = "Establishing a Secure Connection to the Smart Income System…";
 
 
 function CustomTooltip({ active, payload, label }) {
@@ -346,7 +346,7 @@ function WifiToggleCard({ summary, refetch }) {
         <div className="text-xs text-[#707070]">
           {eligible ? (
             <>
-              Disconnect your WiFi from the Smart Income System Network at any time. Disabling the
+              Disconnect your WiFi from the Smart Income System at any time. Disabling the
               connection will immediately pause earnings accrual. No earnings will be
               credited for the time your WiFi was disconnected.
             </>
@@ -669,7 +669,7 @@ export default function DashboardPage() {
                   </div>
                   <AnimatedNumber
                     value={live}
-                    format="currency5"
+                    format="currency"
                     className="font-mono text-4xl font-extrabold tracking-tight text-[#32B5FF] [text-shadow:0_0_18px_rgba(50,181,255,0.65),0_0_40px_rgba(50,181,255,0.35)] sm:text-5xl"
                   />
                   <div className="flex items-center gap-1.5 text-xs text-[#B0B0B0]">

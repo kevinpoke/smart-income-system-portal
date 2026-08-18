@@ -103,7 +103,6 @@ export default function PayoutsPage() {
                 <thead>
                   <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
                     <th className="px-5 py-3">Month</th>
-                    <th className="px-5 py-3">Location</th>
                     <th className="px-5 py-3 text-right">Average Earnings</th>
                     <th className="px-5 py-3 text-right">Status</th>
                   </tr>
@@ -115,7 +114,6 @@ export default function PayoutsPage() {
                       className="border-b border-white/5 text-[#B0B0B0] transition hover:bg-white/[0.03]"
                     >
                       <td className="px-5 py-3 text-white">{row.monthLabel}</td>
-                      <td className="px-5 py-3">{location || "Your Area"}</td>
                       <td className="px-5 py-3 text-right font-mono text-white">
                         {formatCurrency(centsToDollars(row.amountCents))}
                       </td>

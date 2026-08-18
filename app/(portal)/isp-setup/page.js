@@ -59,7 +59,7 @@ function ConnectionProgress({ startedAt, onDone, onError }) {
     <GlassCard className="flex flex-col items-center gap-5 px-6 py-14 text-center">
       <ShieldCheck className="h-12 w-12 animate-pulse text-[#32B5FF]" />
       <h2 className="text-lg font-bold text-white">
-        Establishing a Secure Connection to the Smart Income System Network…
+        Establishing a Secure Connection to the Smart Income System…
       </h2>
       <div className="w-full max-w-md">
         <div className="h-3 w-full overflow-hidden rounded-full bg-white/10">
@@ -340,7 +340,7 @@ export default function IspSetupPage() {
       <SectionTitle
         eyebrow="Step 1 of 1"
         title="ISP Setup"
-        subtitle="Connect your home network to the Smart Income System Rewards Network."
+        subtitle="Connect your home network to the Smart Income System."
       />
       <FadeIn>
         <GlassCard className="p-6 sm:p-10">

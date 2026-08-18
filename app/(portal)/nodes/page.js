@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/Primitives";
 import NodeTierBadge from "@/components/ui/NodeTierBadge";
 import FluctuatingEarnings from "@/components/ui/FluctuatingEarnings";
-import { Server, Zap, Wifi, Clock3, CheckCircle2, Sparkles } from "lucide-react";
+import { Server, Zap, Clock3, CheckCircle2, Sparkles } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 const WAITLIST_MODAL_COPY =
@@ -126,33 +126,11 @@ function WaitlistButton() {
   );
 }
 
-// Small, subtle-pulse WiFi connection indicator for the Nodes marketplace
-// table (Phase 5 correction). Every row shown belongs to the same viewing
-// customer's account, so this reflects the customer's OWN
-// ispStatus/wifiEnabled state (from useAccount(), fetched once for the
-// whole page -- never a separate per-row network call), not a per-node
-// connection state. Connected: green, slow custom-duration pulse.
-// Disconnected: static red/muted, no pulse -- mirrors the Header's
-// disconnected treatment.
-function NodeWifiIndicator({ connected }) {
-  if (connected) {
-    return (
-      <Wifi
-        className="h-3 w-3 animate-pulse text-green-400 [animation-duration:2.5s] [filter:drop-shadow(0_0_3px_rgba(74,222,128,0.7))]"
-        aria-label="WiFi connected"
-      />
-    );
-  }
-  return <Wifi className="h-3 w-3 text-red-500/70" aria-label="WiFi disconnected" />;
-}
-
 export default function NodesPage() {
-  const { account, loading: accountLoading } = useAccount();
+  const { loading: accountLoading } = useAccount();
   const [nodes, setNodes] = useState([]);
   const [locked, setLocked] = useState(true);
   const [loading, setLoading] = useState(true);
-
-  const wifiConnected = account?.ispStatus === "active" && Boolean(account?.wifiEnabled);
 
   useEffect(() => {
     let cancelled = false;
@@ -231,12 +209,12 @@ export default function NodesPage() {
               <thead>
                 <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
                   <th className="px-4 py-3">Bridge ID</th>
-                  <th className="px-4 py-3">Location</th>
                   <th className="px-4 py-3">Bridge Tier</th>
                   <th className="px-4 py-3">IP Address</th>
                   <th className="px-4 py-3 text-right">Est. Monthly Earnings</th>
                   <th className="px-4 py-3 text-right">Cost</th>
                   <th className="px-4 py-3 text-right">Status</th>
+                  <th className="px-4 py-3 text-right">Purchase</th>
                 </tr>
               </thead>
               <tbody>
@@ -248,12 +226,6 @@ export default function NodesPage() {
                       className="border-b border-white/5 text-[#B0B0B0] transition hover:bg-white/[0.03]"
                     >
                       <td className="px-4 py-3 font-mono text-xs text-white">#{node.nodeId}</td>
-                      <td className="px-4 py-3 text-xs">
-                        <span className="inline-flex items-center gap-1">
-                          <NodeWifiIndicator connected={wifiConnected} />
-                          {node.location}
-                        </span>
-                      </td>
                       <td className="px-4 py-3">
                         <NodeTierBadge tierKey={tierKey} tier={node.tier}>
                           {tierKey === "nova" && <Sparkles className="mr-1 h-3 w-3" />}
@@ -281,6 +253,23 @@ export default function NodesPage() {
                         <span className="rounded-md bg-red-600 px-2.5 py-1 text-[10px] font-extrabold tracking-wide text-white">
                           {node.status}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {/* Purchase is not implemented -- this button is
+                            permanently disabled and never fires a
+                            request or navigates anywhere; it exists
+                            purely to visually communicate "Sold Out" for
+                            every listed Bridge, matching the marketplace
+                            copy above ("most Bridges sell out within
+                            hours"). */}
+                        <button
+                          type="button"
+                          disabled
+                          aria-disabled="true"
+                          className="cursor-not-allowed rounded-md bg-white/10 px-3 py-1.5 text-[10px] font-extrabold tracking-wide text-[#707070]"
+                        >
+                          Sold Out
+                        </button>
                       </td>
                     </tr>
                   );
