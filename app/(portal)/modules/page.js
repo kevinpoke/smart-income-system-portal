@@ -21,9 +21,9 @@ function ModuleCard({ mod, now, onOpen }) {
   const completed = mod.completed;
   // Live countdown recomputed every tick from the persisted unlockAt --
   // never from the countdownMs snapshot alone (that would freeze between
-  // polls). unlockAt is only present once the module's row exists (i.e.
-  // its countdown has actually started); modules further out that are
-  // still awaiting a previous completion show fixed copy instead.
+  // polls). unlockAt is derived server-side from the fixed
+  // hours-after-first-login schedule (see lib/mockData.js
+  // MODULE_UNLOCK_HOURS / lib/moduleEngine.js computeModuleUnlockAtMs).
   const countdown =
     !unlocked && mod.unlockAt ? Math.max(0, new Date(mod.unlockAt).getTime() - now) : null;
 
@@ -49,9 +49,9 @@ function ModuleCard({ mod, now, onOpen }) {
                 >
                   Unlocks in {formatCompactDuration(countdown)}
                 </span>
-              ) : mod.awaitingPrevious ? (
-                <span className="text-xs">Complete previous modules to Unlock this video</span>
-              ) : null}
+              ) : (
+                <span className="text-xs">Unlocks after your account&apos;s training schedule</span>
+              )}
             </div>
           )}
           {completed && (
@@ -141,18 +141,13 @@ function VideoModal({ mod, onClose, onFinish, finishing }) {
           <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-[#1c2a33] to-[#0e1a20] text-center">
             <div className="max-w-sm px-6">
               <PlayCircle className="mx-auto mb-3 h-14 w-14 text-[#32B5FF]" />
-              <p className="text-sm text-[#B0B0B0]">
-                [Placeholder video — {mod.duration}] This training walks through &quot;{mod.title}
-                &quot; in detail.
-              </p>
+              <p className="text-sm text-[#B0B0B0]">Lesson video is being prepared.</p>
             </div>
           </div>
         )}
         <div className="flex items-center justify-between p-4">
           <p className="text-xs text-[#707070]">
-            {mod.completed
-              ? "Already marked as watched."
-              : "Mark as watched to unlock the next module in 12 hours."}
+            {mod.completed ? "Already marked as watched." : "Mark as watched to track your progress."}
           </p>
           <AccentButton onClick={() => onFinish(mod.id)} disabled={finishing || mod.completed}>
             {mod.completed ? "Watched" : finishing ? "Saving…" : "Mark as Watched"}
@@ -230,10 +225,10 @@ export default function ModulesPage() {
             how to maximize both your earnings and your contribution to the network.
             <br />
             <br />
-            Each module unlocks 12 hours after the previous one. This pacing is designed to
-            prevent users from rushing through the material and to ensure sufficient time to
-            understand each section before continuing. The objective is not simply to complete
-            the videos, but to develop a clear understanding of the business model.
+            Modules 1-3 are available right away. Modules 4-11 unlock automatically over time
+            starting from your first login, giving you space to absorb each section before the
+            next one becomes available. The objective is not simply to complete the videos, but
+            to develop a clear understanding of the business model.
           </>
         }
       />
