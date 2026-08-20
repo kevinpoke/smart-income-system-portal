@@ -1,0 +1,18 @@
+# Smart Income System — production Docker Compose (Phase 5: private/local
+# only). Caddy reverse proxy + public DNS/HTTPS are Phase 6 and are NOT
+# configured here. The app is bound to 127.0.0.1 only -- never 0.0.0.0 --
+# so it is not reachable from outside the VPS until Phase 6 wires up Caddy.
+services:
+  smart-income-system:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: smart-income-system:latest
+    container_name: smart-income-system
+    restart: unless-stopped
+    env_file:
+      - /opt/smart-income-system/config/production.env
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - /opt/smart-income-system/data:/app/data
