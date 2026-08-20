@@ -11,12 +11,22 @@ import { MapPin, TrendingUp, Info } from "lucide-react";
 // Nothing here reads from or writes to Zustand/localStorage, and nothing
 // here touches the earnings ledger.
 //
-// Refinement pass: the locked/unlocked decision comes directly from the
-// server's `locked` field (see lib/moduleAccess.js
-// hasPayoutsNodesAccess() -- ISP fully active AND city+state both on
-// file). This is DELIBERATELY independent of the admin's per-customer
-// "Unlock All Modules" override, which affects training videos only and
-// must never unlock Payouts.
+// TWO independent, server-enforced locked states for this page (see
+// app/api/payouts/estimates/route.js):
+//   1. `moduleLocked` -- NEW: the customer has not yet COMPLETED Module
+//      10 ("How Payouts Work"). Takes priority over gate 2 below per
+//      spec -- shown even if ISP setup is otherwise fully complete, and
+//      even if Module 10 is merely time-unlocked but not yet marked
+//      watched. This is completely independent of the existing 4-month
+//      WITHDRAWAL eligibility timer (see app/(portal)/withdrawals/page.js)
+//      -- completing Module 10 never resets/starts/shortens that timer,
+//      it only unlocks visibility of THIS page's estimate content.
+//   2. `locked` (with moduleLocked === false) -- pre-existing: ISP setup
+//      not yet fully active / city+state not on file (see
+//      lib/moduleAccess.js hasPayoutsNodesAccess()). DELIBERATELY
+//      independent of the admin's per-customer "Unlock All Modules"
+//      override, which affects training videos only and must never
+//      unlock Payouts.
 export default function PayoutsPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -29,7 +39,7 @@ export default function PayoutsPage() {
         const json = await res.json();
         if (!cancelled) setData(json);
       } catch {
-        if (!cancelled) setData({ locked: true, rows: [], location: null });
+        if (!cancelled) setData({ locked: true, moduleLocked: false, rows: [], location: null });
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -42,6 +52,7 @@ export default function PayoutsPage() {
   const rows = data?.rows || [];
   const location = data?.location || null;
   const locked = Boolean(data?.locked);
+  const moduleLocked = Boolean(data?.moduleLocked);
 
   const average = rows.length
     ? rows.reduce((sum, r) => sum + centsToDollars(r.amountCents), 0) / rows.length
@@ -55,11 +66,21 @@ export default function PayoutsPage() {
         subtitle="See what bridges near you have historically earned."
       />
 
-      {!loading && locked && (
+      {!loading && moduleLocked && (
+        <FadeIn>
+          <GlassCard className="p-5">
+            <div className="text-sm font-semibold text-white">
+              Please complete the Payout module checklist to unlock your earnings (Module 10)
+            </div>
+          </GlassCard>
+        </FadeIn>
+      )}
+
+      {!loading && locked && !moduleLocked && (
         <LocationRequiredCard body="Complete your ISP Setup to see payout estimates for your area." />
       )}
 
-      {(loading || !locked) && (
+      {(loading || (!locked && !moduleLocked)) && (
         <FadeIn>
           <GlassCard className="flex flex-col items-start justify-between gap-3 p-5 sm:flex-row sm:items-center">
             <div className="flex items-center gap-3">

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { getDb } from "@/lib/db";
 import { getCurrentAccountRaw } from "@/lib/session";
 import { computePayoutEstimates } from "@/lib/payoutsEngine";
 import { getPayoutTargetAt } from "@/lib/earningsEngine";
-import { hasPayoutsNodesAccess } from "@/lib/moduleAccess";
+import { hasPayoutsNodesAccess, hasPayoutAccess } from "@/lib/moduleAccess";
 
 // Authenticated customer's payout estimate rows. Purely derived from the
 // account id (for the seed) -- these are demo/marketing figures only and
@@ -19,18 +20,50 @@ import { hasPayoutsNodesAccess } from "@/lib/moduleAccess";
 // /api/earnings/summary, so the "Next withdrawal available in..."
 // countdown here can never disagree with the Dashboard's "Next Payout"
 // countdown -- there is exactly one calculation, read from two routes.
+// This route's own payoutTargetAt/payoutAvailable fields are UNCHANGED by
+// the new Module 10 gate below -- they still describe the existing
+// 4-month WITHDRAWAL eligibility timer only (see
+// app/(portal)/withdrawals/page.js), never reset or influenced by module
+// completion.
 //
-// Refinement pass: PAYOUTS must remain locked until BOTH (1) ISP setup
-// is fully completed (isp_status === "active") AND (2) city+state are
-// both stored -- see lib/moduleAccess.js hasPayoutsNodesAccess(). This
-// is DELIBERATELY stricter than (and independent of) hasModuleAccess():
-// the admin's per-customer "Unlock All Modules" override affects
-// training videos ONLY and must never unlock Payouts, so it is not
-// consulted here at all, in either direction.
+// GATES (both independent, both server-enforced, both must pass to see
+// real payout content):
+//   1. hasPayoutsNodesAccess() -- pre-existing: ISP setup fully completed
+//      (isp_status === "active") AND city+state both stored. Deliberately
+//      independent of the admin's per-customer "Unlock All Modules"
+//      override, which affects training videos only.
+//   2. hasPayoutAccess() -- NEW: the authenticated customer has actually
+//      COMPLETED Module 10 ("How Payouts Work"), per
+//      account_module_progress.completed_at for module_key = 10 (see
+//      lib/moduleEngine.js isModuleCompleted() / lib/moduleAccess.js
+//      hasPayoutAccess()). This is a PAGE-ACCESS gate only -- it does
+//      NOT touch payoutTargetAt/payoutAvailable (the existing 4-month
+//      WITHDRAWAL timer), which remains entirely unchanged and is
+//      computed identically whether or not this gate passes.
+//
+// A customer failing gate 2 gets a dedicated `moduleLocked: true`
+// response with the exact required copy, distinct from the pre-existing
+// `locked: true` (ISP-setup-incomplete) response, so the page can render
+// the correct one of the two distinct locked states.
 export async function GET() {
   const account = await getCurrentAccountRaw();
   if (!account) {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+  }
+
+  const db = getDb();
+
+  // Module 10 completion gate takes priority: per spec, the Payouts
+  // section itself must show the Module 10 locked message until this
+  // passes, independent of ISP-setup completion state.
+  if (!hasPayoutAccess(db, account)) {
+    return NextResponse.json({
+      mode: "demo",
+      locked: true,
+      moduleLocked: true,
+      location: null,
+      rows: [],
+    });
   }
 
   const location =
@@ -41,7 +74,7 @@ export async function GET() {
   const unlocked = hasPayoutsNodesAccess(account);
 
   if (!unlocked) {
-    return NextResponse.json({ mode: "demo", locked: true, location: null, rows: [] });
+    return NextResponse.json({ mode: "demo", locked: true, moduleLocked: false, location: null, rows: [] });
   }
 
   const rows = computePayoutEstimates(account.id, 12).map((r) => ({
@@ -55,6 +88,7 @@ export async function GET() {
   return NextResponse.json({
     mode: "demo",
     locked: false,
+    moduleLocked: false,
     location,
     rows,
     payoutTargetAt,

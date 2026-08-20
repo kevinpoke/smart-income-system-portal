@@ -26,8 +26,8 @@ export async function GET() {
         title: meta?.title,
         description: meta?.description,
         duration: meta?.duration,
-        videoUrl: meta?.videoUrl || null,
-        videoType: meta?.videoType || null,
+        vturbPlayerId: meta?.vturbPlayerId || null,
+        vturbScriptUrl: meta?.vturbScriptUrl || null,
         videoTitle: meta?.videoTitle || null,
       };
     }),

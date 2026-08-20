@@ -5,8 +5,9 @@ import { motion } from "framer-motion";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
 import { formatCompactDuration } from "@/lib/mockData";
-import { normalizeModuleVideo } from "@/lib/moduleVideo";
+import { normalizeVturbConfig } from "@/lib/moduleVideo";
 import { GlassCard, SectionTitle, Badge, AccentButton } from "@/components/ui/Primitives";
+import VturbPlayer from "@/components/ui/VturbPlayer";
 import { Lock, PlayCircle, CheckCircle2, X } from "lucide-react";
 
 // Refinement pass: module lock/unlock/completion state is now entirely
@@ -77,13 +78,13 @@ function ModuleCard({ mod, now, onOpen }) {
 
 function VideoModal({ mod, onClose, onFinish, finishing }) {
   // Training Module video support: normalize the module's raw
-  // admin-supplied videoUrl (if any) into a safe, embeddable descriptor
-  // via lib/moduleVideo.js -- the ONLY place URL validation/normalization
-  // happens. `video` is null whenever no URL is set OR the URL is
-  // unsupported/invalid, in which case the existing placeholder card
-  // below is shown unchanged (safe fallback, never raw HTML injection,
-  // never an unvalidated iframe/video src).
-  const video = mod.videoUrl ? normalizeModuleVideo(mod.videoUrl, mod.videoType) : null;
+  // admin-configured VTurb SmartPlayer descriptor (playerId + scriptUrl)
+  // via lib/moduleVideo.js -- the ONLY place VTurb config validation
+  // happens. `vturb` is null whenever no player is configured OR the
+  // config is unsupported/invalid, in which case the existing
+  // placeholder card below is shown unchanged (safe fallback, never raw
+  // HTML injection, never an unvalidated script/iframe src).
+  const vturb = normalizeVturbConfig(mod.vturbPlayerId, mod.vturbScriptUrl);
 
   return (
     <motion.div
@@ -106,37 +107,15 @@ function VideoModal({ mod, onClose, onFinish, finishing }) {
           </button>
         </div>
         {/* Responsive 16:9 video container, per spec, shared by both the
-            direct <video> and iframe (Google Drive/YouTube/Vimeo)
-            render paths below -- aspect-video keeps the box the same
-            ratio at any width, both desktop and mobile. */}
-        {video?.kind === "direct" ? (
-          <div className="aspect-video w-full bg-black">
-            <video
-              key={video.src}
-              src={video.src}
-              controls
-              className="h-full w-full"
-              title={mod.videoTitle || mod.title}
-            >
-              Your browser does not support embedded video playback.
-            </video>
-          </div>
-        ) : video?.kind === "iframe" ? (
-          <div className="aspect-video w-full bg-black">
-            <iframe
-              key={video.src}
-              src={video.src}
-              title={mod.videoTitle || mod.title}
-              className="h-full w-full"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-              // No referrer/sandbox override needed beyond the browser's
-              // own iframe defaults -- src is already restricted to the
-              // small explicit hostname allowlist in
-              // lib/moduleVideo.js, so this can never render arbitrary
-              // attacker-controlled markup or a javascript:/data: URL.
-            />
-          </div>
+            VTurb SmartPlayer render path and the missing-video fallback
+            below -- aspect-video keeps the box the same ratio at any
+            width, both desktop and mobile. */}
+        {vturb ? (
+          <VturbPlayer
+            playerId={vturb.playerId}
+            scriptUrl={vturb.scriptUrl}
+            title={mod.videoTitle || mod.title}
+          />
         ) : (
           <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-[#1c2a33] to-[#0e1a20] text-center">
             <div className="max-w-sm px-6">
