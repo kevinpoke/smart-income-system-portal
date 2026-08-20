@@ -89,10 +89,10 @@ function LoginForm() {
       <p className="mt-5 text-center text-xs text-[#707070]">
         If you&rsquo;re having trouble logging in, please reach out to{" "}
         <a
-          href="mailto:support@smartincomesystem.com"
+          href="mailto:jenny@smart-income-system.com"
           className="text-[#32B5FF] underline-offset-2 hover:underline"
         >
-          support@smartincomesystem.com
+          jenny@smart-income-system.com
         </a>
       </p>
     </GlassCard>

@@ -204,10 +204,10 @@ export default function ModulesPage() {
             how to maximize both your earnings and your contribution to the network.
             <br />
             <br />
-            Modules 1-3 are available right away. Modules 4-11 unlock automatically over time
-            starting from your first login, giving you space to absorb each section before the
-            next one becomes available. The objective is not simply to complete the videos, but
-            to develop a clear understanding of the business model.
+            Each module unlocks 16 hours after the previous one. This pacing is designed to
+            prevent users from rushing through the material and to ensure sufficient time to
+            understand each section before continuing. The objective is not simply to complete
+            the videos, but to develop a clear understanding of the business model.
           </>
         }
       />
