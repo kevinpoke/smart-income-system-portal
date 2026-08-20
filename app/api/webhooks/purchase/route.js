@@ -1,16 +1,30 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { requireAdmin } from "@/lib/session";
+import { isSameOrigin } from "@/lib/csrf";
 import { hashPassword, generateTempPassword, generateId } from "@/lib/auth-crypto";
 import { sendEmail } from "@/lib/mailer";
 
-// Simulates the purchase webhook (e.g. JVZoo) that fires when someone buys
-// the program. Creates an account with a temp password (if one doesn't
-// already exist for that email) and emails the temp password to the buyer.
-//
-// Real integration: point your payment processor's webhook at this URL and
-// map its payload fields to { email, name } below. Add webhook signature
-// verification before going live.
+// Phase 4.5 (manual-launch security pass): this route originally simulated
+// a public, unauthenticated JVZoo purchase webhook. For initial production
+// launch, JVZoo IPN automation is DEFERRED (see Phase 7) and customer
+// accounts are created manually by an admin instead, reusing this same
+// account-creation logic via the Admin Panel's "Simulate JVZoo Purchase"
+// button. Until real webhook signature/HMAC verification is implemented in
+// Phase 7, this endpoint MUST stay admin-only -- do NOT remove the
+// requireAdmin() guard below or otherwise open this route to unauthenticated
+// public requests, or anyone can self-provision an account (and previously
+// could read its temp password straight out of the JSON response).
 export async function POST(request) {
+  if (!isSameOrigin(request)) {
+    return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
+  }
+
+  const guard = await requireAdmin();
+  if (!guard.account) {
+    return NextResponse.json({ error: guard.errorMessage }, { status: guard.errorStatus });
+  }
+
   let body;
   try {
     body = await request.json();
