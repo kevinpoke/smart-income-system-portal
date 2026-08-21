@@ -24,7 +24,16 @@ import {
   UserPlus,
   Pencil,
   Plus,
+  KeyRound,
 } from "lucide-react";
+
+// Matches the MIN_PASSWORD_LENGTH policy already enforced server-side in
+// app/api/admin/accounts/[id]/set-password (and everywhere else a
+// password is set in this app -- app/api/admin/accounts/create,
+// app/api/auth/change-password, components/layout/ProfileModal.js).
+// This is a client-side convenience check only; the route itself is the
+// actual source of truth and re-validates independently.
+const MIN_PASSWORD_LENGTH = 8;
 
 const ISP_STATUS_LABELS = {
   not_started: { label: "Not Started", tone: "default" },
@@ -165,6 +174,104 @@ function BalanceModal({ account, onClose, onSubmitted }) {
             </GhostButton>
             <AccentButton type="submit" disabled={submitting} className="flex-1">
               {submitting ? "Submitting…" : "Submit"}
+            </AccentButton>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Admin "Set Password" action: directly assigns a customer's active
+// password (POST /api/admin/accounts/[id]/set-password). Mirrors
+// BalanceModal/UnlockAllModal styling exactly (same overlay, card,
+// Cancel/GhostButton + AccentButton footer) -- no new visual pattern.
+// Client-side mismatch/length checks mirror the ones already used in
+// components/layout/ProfileModal.js's own password form; the server
+// route re-validates independently regardless.
+function SetPasswordModal({ account, onClose, onSubmitted }) {
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+
+    if (!newPassword || newPassword.length < MIN_PASSWORD_LENGTH) {
+      setError(`New password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("New password and confirmation do not match.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/admin/accounts/${account.id}/set-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newPassword, confirmPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Unable to set password.");
+        return;
+      }
+      onSubmitted();
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1E1E1E] p-6"
+      >
+        <h3 className="mb-1 text-base font-bold text-white">Set Password</h3>
+        <p className="mb-4 text-xs text-[#707070]">{account.email}</p>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#B0B0B0]">New Password</span>
+            <input
+              autoFocus
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#B0B0B0]">Confirm New Password</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
+            />
+          </label>
+          <div className="text-[10px] text-[#707070]">
+            Minimum {MIN_PASSWORD_LENGTH} characters. The customer will not see this password
+            again after saving.
+          </div>
+          {error && <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>}
+          <div className="flex gap-2 pt-1">
+            <GhostButton type="button" onClick={onClose} className="flex-1">
+              Cancel
+            </GhostButton>
+            <AccentButton type="submit" disabled={submitting} className="flex-1">
+              {submitting ? "Setting…" : "Set Password"}
             </AccentButton>
           </div>
         </form>
@@ -444,6 +551,8 @@ function AccountRow({
   unlockMessage,
   onOpenEditNodes,
   onOpenAddNode,
+  onOpenSetPassword,
+  setPasswordMessage,
 }) {
   const [emailDraft, setEmailDraft] = useState(account.email);
   const [editingEmail, setEditingEmail] = useState(false);
@@ -702,10 +811,22 @@ function AccountRow({
                   Unlock Modules
                 </span>
               </button>
+              <button
+                onClick={() => onOpenSetPassword(account)}
+                aria-label={`Set password for ${account.email}`}
+                title="Set Password"
+                className="group relative flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-[#B0B0B0] hover:bg-white/20 hover:text-white"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                <span className="pointer-events-none absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                  Set Password
+                </span>
+              </button>
             </>
           )}
         </div>
         {unlockMessage && <div className="mt-1 text-[10px] text-green-400">{unlockMessage}</div>}
+        {setPasswordMessage && <div className="mt-1 text-[10px] text-green-400">{setPasswordMessage}</div>}
       </td>
     </tr>
   );
@@ -803,6 +924,9 @@ export default function AdminUsersPage() {
   // rendered as a direct child of a <tr>/<table>/<tbody>.
   const [editNodesAccount, setEditNodesAccount] = useState(null);
   const [addNodeAccount, setAddNodeAccount] = useState(null);
+  // Same pattern again for the "Set Password" action's modal.
+  const [setPasswordModalAccount, setSetPasswordModalAccount] = useState(null);
+  const [setPasswordMessages, setSetPasswordMessages] = useState({});
   // Per-account "Modules unlocked." confirmation text shown inline in
   // that account's row -- keyed by account id so each row keeps its own
   // message independently, matching the previous per-row local state.
@@ -1139,6 +1263,8 @@ export default function AdminUsersPage() {
                   unlockMessage={unlockMessages[account.id]}
                   onOpenEditNodes={setEditNodesAccount}
                   onOpenAddNode={setAddNodeAccount}
+                  onOpenSetPassword={setSetPasswordModalAccount}
+                  setPasswordMessage={setPasswordMessages[account.id]}
                 />
               ))}
               {adminRows.map((account) => (
@@ -1154,6 +1280,8 @@ export default function AdminUsersPage() {
                   unlockMessage={unlockMessages[account.id]}
                   onOpenEditNodes={setEditNodesAccount}
                   onOpenAddNode={setAddNodeAccount}
+                  onOpenSetPassword={setSetPasswordModalAccount}
+                  setPasswordMessage={setPasswordMessages[account.id]}
                 />
               ))}
               {accounts.length === 0 && (
@@ -1272,6 +1400,21 @@ export default function AdminUsersPage() {
           onClose={() => setAddNodeAccount(null)}
           onAdded={() => {
             setAddNodeAccount(null);
+            loadAccounts();
+          }}
+        />
+      )}
+      {setPasswordModalAccount && (
+        <SetPasswordModal
+          account={setPasswordModalAccount}
+          onClose={() => setSetPasswordModalAccount(null)}
+          onSubmitted={() => {
+            const targetId = setPasswordModalAccount.id;
+            setSetPasswordModalAccount(null);
+            setSetPasswordMessages((prev) => ({
+              ...prev,
+              [targetId]: "Password updated successfully.",
+            }));
             loadAccounts();
           }}
         />
