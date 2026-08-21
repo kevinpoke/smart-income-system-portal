@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
 import { generateId } from "@/lib/auth-crypto";
-import { listOwnedNodes, addOwnedNodeWithTier, MAX_NODES_PER_ACCOUNT } from "@/lib/ownedNodes";
+import { listOwnedNodes, addOwnedNodeWithTier } from "@/lib/ownedNodes";
 import { hasPayoutsNodesAccess } from "@/lib/moduleAccess";
 import { isValidTierKey } from "@/lib/nodeTiers";
 
@@ -159,12 +159,6 @@ export async function POST(request, { params }) {
     result = addOwnedNodeWithTier(db, targetId, tierKey);
     if (!result.added) {
       db.exec("ROLLBACK");
-      if (result.reason === "limit_reached") {
-        return NextResponse.json(
-          { error: `This account already has the maximum of ${MAX_NODES_PER_ACCOUNT} Nodes.` },
-          { status: 400 }
-        );
-      }
       return NextResponse.json({ error: "Unable to add Node." }, { status: 400 });
     }
 

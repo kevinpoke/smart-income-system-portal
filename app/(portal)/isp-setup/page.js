@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAccount } from "@/lib/useAccount";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
@@ -86,6 +86,22 @@ export default function IspSetupPage() {
   const { account: user, loading, refetch } = useAccount();
   const now = useLiveClock(1000);
   const hasMounted = useHasMounted();
+
+  // Production feature/fix batch: clear the ISP Setup nav-tab unread
+  // indicator the moment this page is loaded -- mirrors the existing
+  // Support pattern exactly (GET /api/support/messages clears
+  // customer_unread on load). Fired once per mount; refetch() afterward
+  // picks up the now-cleared ispUnread so the Sidebar/MobileNav dot
+  // disappears immediately without a hard refresh, same as Support.
+  useEffect(() => {
+    fetch("/api/isp/mark-seen", { method: "POST" })
+      .then(() => refetch())
+      .catch(() => {
+        // A transient failure here just means the dot clears on the next
+        // successful poll/visit instead -- not worth surfacing to the user.
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [form, setForm] = useState({
     provider: "",
@@ -308,14 +324,18 @@ export default function IspSetupPage() {
             <Clock3 className="h-12 w-12 animate-pulse text-[#32B5FF]" />
             <div className="mx-auto max-w-lg px-2">
               <h2 className="text-xl font-bold text-white leading-snug">
-                We&rsquo;re currently connecting your WiFi to the Smart Income System
-                Network.
+                We&rsquo;re currently setting up your WiFi and connecting it
+                to the Smart Income System.
               </h2>
               <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-[#B0B0B0]">
-                Once your connection has been successfully configured,
-                you&rsquo;ll receive a confirmation email. Because each setup
-                is completed manually, please allow 1&ndash;3 business days
-                for us to allocate and activate your Bridge.
+                We&rsquo;re allocating the best available data routes based
+                on your location, WiFi bandwidth, and internet provider to
+                optimize your earning potential.
+              </p>
+              <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-[#B0B0B0]">
+                Your setup may be completed sooner than 3 business days.
+                Once your Bridge is ready, check back to activate your
+                Smart Income System.
               </p>
             </div>
             {reviewTimeRemaining != null && (
@@ -324,9 +344,8 @@ export default function IspSetupPage() {
               </Badge>
             )}
             <p className="max-w-md px-2 text-xs leading-relaxed text-[#707070]">
-              If you have not received a confirmation email within 3 days,
-              please contact Support so we can review and expedite your
-              setup.
+              If your setup is not complete within 3 business days, contact
+              Support for assistance.
             </p>
           </GlassCard>
         </FadeIn>

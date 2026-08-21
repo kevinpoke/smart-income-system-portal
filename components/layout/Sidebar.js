@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useAccount } from "@/lib/useAccount";
 import { useSupportUnread } from "@/lib/useSupportUnread";
+import { useIspUnread } from "@/lib/useIspUnread";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -45,6 +46,10 @@ export default function Sidebar() {
   // whatever page is currently mounted, and only clears when the
   // customer actually opens the Support page.
   const { unread: supportUnread } = useSupportUnread();
+  // Production feature/fix batch: independent ISP Setup unread indicator
+  // (see lib/useIspUnread.js) -- fully separate poll/state from Support's,
+  // so opening Support never clears this and vice versa.
+  const { unread: ispUnread } = useIspUnread();
 
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -108,6 +113,11 @@ export default function Sidebar() {
           const active = pathname === item.href;
           const Icon = item.icon;
           const showSupportBadge = item.href === "/support" && supportUnread;
+          // Production feature/fix batch: identical badge, driven by the
+          // independent ispUnread state, on the ISP Setup nav item only.
+          const showIspBadge = item.href === "/isp-setup" && ispUnread;
+          const showBadge = showSupportBadge || showIspBadge;
+          const badgeLabel = showSupportBadge ? "Unread support reply" : "ISP status update";
           return (
             <Link
               key={item.href}
@@ -129,14 +139,20 @@ export default function Sidebar() {
               </span>
               <span className="flex flex-1 items-center justify-between">
                 {item.label}
-                {showSupportBadge && (
+                {showBadge && (
                   <span
                     className="relative inline-flex h-2.5 w-2.5 flex-shrink-0"
-                    aria-label="Unread support reply"
-                    title="Unread support reply"
+                    aria-label={badgeLabel}
+                    title={badgeLabel}
                   >
-                    <span className="absolute inline-flex h-full w-full animate-[ping_0.8s_ease-in-out_infinite] rounded-full bg-[#32B5FF] opacity-90" />
-                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#5fd0ff] shadow-[0_0_10px_3px_rgba(50,181,255,0.95)]" />
+                    {/* Production feature/fix batch: "more aggressive" pulse
+                        -- faster 0.6s ping (was 0.8s) plus a stronger glow
+                        via drop-shadow, same exact markup/size for both the
+                        Support and ISP dots so they are visually identical
+                        per spec ("Same visual style"). Sizing/layout is
+                        unchanged so no surrounding text shifts. */}
+                    <span className="absolute inline-flex h-full w-full animate-[ping_0.6s_ease-in-out_infinite] rounded-full bg-[#32B5FF] opacity-90" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#5fd0ff] shadow-[0_0_12px_4px_rgba(50,181,255,1)]" />
                   </span>
                 )}
               </span>

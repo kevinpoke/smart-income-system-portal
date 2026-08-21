@@ -196,8 +196,7 @@ export default function NodesPage() {
           <p className="max-w-3xl text-sm leading-relaxed text-[#B0B0B0]">
             Premium Bridge inventory is in high demand, and most Bridges sell
             out within hours. Listed below are the Bridges currently
-            available for purchase in your area. To ensure fair access for
-            all members, purchases are limited to five Bridges per member.
+            available for purchase in your area.
           </p>
         </GlassCard>
       </FadeIn>
@@ -248,6 +247,11 @@ export default function NodesPage() {
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-xs text-white">
                         {formatCurrency(centsToDollars(node.costCents))}
+                        {typeof node.costPercent === "number" && (
+                          <div className="text-[10px] font-sans text-[#707070]">
+                            {Math.round(node.costPercent * 100)}% of earnings
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span className="rounded-md bg-red-600 px-2.5 py-1 text-[10px] font-extrabold tracking-wide text-white">

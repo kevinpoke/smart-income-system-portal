@@ -15,6 +15,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { useSupportUnread } from "@/lib/useSupportUnread";
+import { useIspUnread } from "@/lib/useIspUnread";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: LayoutDashboard },
@@ -33,6 +34,9 @@ export default function MobileNav() {
   // Portal reliability pass: same persistent, server-polled Support
   // unread indicator as the desktop Sidebar (see lib/useSupportUnread.js).
   const { unread: supportUnread } = useSupportUnread();
+  // Production feature/fix batch: independent ISP Setup unread indicator,
+  // fully separate poll/state from Support's.
+  const { unread: ispUnread } = useIspUnread();
 
   // Same logout behavior as the desktop Sidebar: POST to the real logout
   // endpoint (server session is the source of truth), guard against
@@ -59,6 +63,9 @@ export default function MobileNav() {
         const active = pathname === item.href;
         const Icon = item.icon;
         const showSupportBadge = item.href === "/support" && supportUnread;
+        const showIspBadge = item.href === "/isp-setup" && ispUnread;
+        const showBadge = showSupportBadge || showIspBadge;
+        const badgeLabel = showSupportBadge ? "Unread support reply" : "ISP status update";
         return (
           <Link
             key={item.href}
@@ -71,14 +78,17 @@ export default function MobileNav() {
             <Icon className="h-5 w-5" />
             <span className="flex items-center gap-1">
               {item.label}
-              {showSupportBadge && (
+              {showBadge && (
                 <span
                   className="relative inline-flex h-2 w-2 flex-shrink-0"
-                  aria-label="Unread support reply"
-                  title="Unread support reply"
+                  aria-label={badgeLabel}
+                  title={badgeLabel}
                 >
-                  <span className="absolute inline-flex h-full w-full animate-[ping_0.8s_ease-in-out_infinite] rounded-full bg-[#32B5FF] opacity-90" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[#5fd0ff] shadow-[0_0_8px_2px_rgba(50,181,255,0.95)]" />
+                  {/* Production feature/fix batch: same faster/stronger
+                      pulse as the desktop Sidebar (0.6s ping, brighter
+                      glow), identical for Support and ISP dots. */}
+                  <span className="absolute inline-flex h-full w-full animate-[ping_0.6s_ease-in-out_infinite] rounded-full bg-[#32B5FF] opacity-90" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[#5fd0ff] shadow-[0_0_10px_3px_rgba(50,181,255,1)]" />
                 </span>
               )}
             </span>

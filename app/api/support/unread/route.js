@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getCurrentAccountRaw } from "@/lib/session";
 import { getOrCreateConversation, getCustomerUnread } from "@/lib/supportEngine";
+import { deliverDueMessages } from "@/lib/supportAutomation";
 
 // Lightweight, read-only "does the customer have an unread admin reply"
 // check for the persistent Support nav-tab indicator (Sidebar/MobileNav).
@@ -19,6 +20,15 @@ export async function GET() {
   }
 
   const db = getDb();
+  // Production feature/fix batch: this route is the one polled every
+  // few seconds by the Sidebar/MobileNav nav badge WITHOUT the customer
+  // ever opening the Support page itself -- it must also flush any due
+  // scheduled automated messages first, otherwise a welcome/check-in
+  // message that becomes due while the customer is browsing elsewhere
+  // would silently sit undelivered (and therefore invisible, no badge)
+  // until they happened to open Support, defeating lazy delivery. See
+  // lib/supportAutomation.js.
+  deliverDueMessages(db, account.id);
   const conversation = getOrCreateConversation(db, account.id);
   const unread = getCustomerUnread(db, account.id);
 

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import clsx from "clsx";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -23,7 +22,7 @@ import {
   formatCountdownParts,
 } from "@/lib/mockData";
 import { GlassCard, SectionTitle, FadeIn, Badge } from "@/components/ui/Primitives";
-import NodeTierBadge, { NOVA_CARD_GLOW_CLASS } from "@/components/ui/NodeTierBadge";
+import NodeTierBadge from "@/components/ui/NodeTierBadge";
 import FluctuatingEarnings from "@/components/ui/FluctuatingEarnings";
 import AnimatedNumber from "@/components/ui/AnimatedNumber";
 import Link from "next/link";
@@ -463,10 +462,7 @@ function YourNodesSection({ nodes, loading }) {
                 {nodes.map((node) => (
                   <tr
                     key={node.id || node.nodeId}
-                    className={clsx(
-                      "border-b border-white/5 text-[#B0B0B0]",
-                      node.tierKey === "nova" && NOVA_CARD_GLOW_CLASS
-                    )}
+                    className="border-b border-white/5 text-[#B0B0B0]"
                   >
                     <td className="px-4 py-3 font-mono text-xs text-white">
                       #{node.displayNodeId || node.nodeId}

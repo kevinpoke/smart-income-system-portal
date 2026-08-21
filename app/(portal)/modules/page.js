@@ -86,6 +86,20 @@ function VideoModal({ mod, onClose, onFinish, finishing }) {
   // HTML injection, never an unvalidated script/iframe src).
   const vturb = normalizeVturbConfig(mod.vturbPlayerId, mod.vturbScriptUrl);
 
+  // Production feature/fix batch (Module Video reopen fix): a fresh,
+  // random DOM-id suffix generated exactly ONCE per MOUNT of this
+  // component. Because the parent (ModulesPage, below) now renders
+  // <VideoModal key={...}> with a key that changes on every single
+  // "open" click -- including reopening the SAME module -- React fully
+  // unmounts the previous VideoModal instance and mounts a brand-new
+  // one every time the modal opens, so this useState initializer reruns
+  // and produces a brand-new value every time. That value is passed
+  // down to VturbPlayer as `domId`, which becomes the actual
+  // `<vturb-smartplayer id="...">` DOM id -- see components/ui/
+  // VturbPlayer.js's header comment for why a fresh DOM id per open is
+  // what fixes VTurb's stale-state-on-reopen bug.
+  const [videoDomId] = useState(() => `${mod.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -115,6 +129,7 @@ function VideoModal({ mod, onClose, onFinish, finishing }) {
             playerId={vturb.playerId}
             scriptUrl={vturb.scriptUrl}
             title={mod.videoTitle || mod.title}
+            domId={videoDomId}
           />
         ) : (
           <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-[#1c2a33] to-[#0e1a20] text-center">
@@ -143,8 +158,24 @@ export default function ModulesPage() {
   const [modules, setModules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [openModuleId, setOpenModuleId] = useState(null);
+  // Production feature/fix batch (Module Video reopen fix): incremented
+  // on EVERY open request, even when reopening the exact same module id
+  // (see handleOpen below). Combined with openModuleId into the <
+  // VideoModal key> below, this guarantees React always mounts a
+  // genuinely NEW VideoModal (and therefore a new VturbPlayer with a
+  // fresh DOM id) on every open -- by default React would otherwise
+  // reuse the same component instance across renders whenever the
+  // `mod` prop's identity/keying didn't change, which is exactly what
+  // silently preserved VTurb's stale per-id state across reopens of the
+  // same module before this fix.
+  const [openCounter, setOpenCounter] = useState(0);
   const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState("");
+
+  const handleOpen = useCallback((moduleId) => {
+    setOpenModuleId(moduleId);
+    setOpenCounter((c) => c + 1);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -216,12 +247,13 @@ export default function ModulesPage() {
       )}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {modules.map((mod) => (
-          <ModuleCard key={mod.id} mod={mod} now={now} onOpen={setOpenModuleId} />
+          <ModuleCard key={mod.id} mod={mod} now={now} onOpen={handleOpen} />
         ))}
       </div>
 
       {openMod && (
         <VideoModal
+          key={`${openModuleId}-${openCounter}`}
           mod={openMod}
           onClose={() => setOpenModuleId(null)}
           onFinish={handleFinish}

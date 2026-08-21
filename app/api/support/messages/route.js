@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { getCurrentAccountRaw } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
 import { getOrCreateConversation, getMessages, postMessage, markCustomerRead } from "@/lib/supportEngine";
+import { deliverDueMessages } from "@/lib/supportAutomation";
 
 // Customer's own support conversation. Always scoped to the authenticated
 // session's account id -- there is no conversation/account id parameter
@@ -51,6 +52,12 @@ export async function GET() {
   }
 
   const db = getDb();
+  // Production feature/fix batch: deliver any due scheduled automated
+  // messages (welcome / check-in / ISP-approved) before reading the
+  // conversation, so a customer who opens Support after the delivery
+  // window has elapsed sees them immediately rather than on some later
+  // request. See lib/supportAutomation.js.
+  deliverDueMessages(db, account.id);
   const conversation = getOrCreateConversation(db, account.id);
   const messages = getMessages(db, conversation.id, account.id);
   markCustomerRead(db, account.id);
