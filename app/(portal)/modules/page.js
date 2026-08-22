@@ -86,19 +86,18 @@ function VideoModal({ mod, onClose, onFinish, finishing }) {
   // HTML injection, never an unvalidated script/iframe src).
   const vturb = normalizeVturbConfig(mod.vturbPlayerId, mod.vturbScriptUrl);
 
-  // Production feature/fix batch (Module Video reopen fix): a fresh,
-  // random DOM-id suffix generated exactly ONCE per MOUNT of this
-  // component. Because the parent (ModulesPage, below) now renders
-  // <VideoModal key={...}> with a key that changes on every single
-  // "open" click -- including reopening the SAME module -- React fully
-  // unmounts the previous VideoModal instance and mounts a brand-new
-  // one every time the modal opens, so this useState initializer reruns
-  // and produces a brand-new value every time. That value is passed
-  // down to VturbPlayer as `domId`, which becomes the actual
-  // `<vturb-smartplayer id="...">` DOM id -- see components/ui/
-  // VturbPlayer.js's header comment for why a fresh DOM id per open is
-  // what fixes VTurb's stale-state-on-reopen bug.
-  const [videoDomId] = useState(() => `${mod.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
+  // Hotfix (VTurb black-screen regression): the <vturb-smartplayer> DOM
+  // id rendered by VturbPlayer is now ALWAYS the official, stable
+  // `vid-${playerId}` -- see components/ui/VturbPlayer.js's header
+  // comment for the confirmed root cause (VTurb's player.js looks up
+  // that exact id via document.getElementById() and silently mounts an
+  // orphan element elsewhere in the DOM if it isn't found, which is
+  // what caused the black screen). Reopen support no longer needs a
+  // randomized DOM id at all: the parent (ModulesPage, below) still
+  // renders <VideoModal key={...}> with a key that changes on every
+  // "open" click -- including reopening the SAME module -- so React
+  // fully unmounts/remounts VturbPlayer, which re-executes VTurb's
+  // player.js against the freshly (re)mounted, stably-id'd element.
 
   return (
     <motion.div
@@ -129,7 +128,6 @@ function VideoModal({ mod, onClose, onFinish, finishing }) {
             playerId={vturb.playerId}
             scriptUrl={vturb.scriptUrl}
             title={mod.videoTitle || mod.title}
-            domId={videoDomId}
           />
         ) : (
           <div className="flex aspect-video items-center justify-center bg-gradient-to-br from-[#1c2a33] to-[#0e1a20] text-center">
