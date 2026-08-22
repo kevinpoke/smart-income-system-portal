@@ -29,12 +29,23 @@ export async function GET(request, { params }) {
     return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
   }
 
+  // Part 5 (unread logic): this GET is the ONE and ONLY place an
+  // admin-facing conversation is marked read -- it only runs when the
+  // admin actually loads a specific conversation's detail (manually
+  // "opens/taps into" it from the inbox UI). No other route in this app
+  // calls markConversationRead(): automated messages (postMessageInner's
+  // admin branch, lib/supportAutomation.js deliverDueMessages) and the
+  // admin broadcast route (app/api/admin/support/broadcast, which sends
+  // without opening any single chat) only ever touch conversations'
+  // CUSTOMER-facing customer_unread flag, never this ADMIN-facing
+  // unread_override/unread_customer_count state -- confirmed by
+  // grepping every write site of unread_override in the codebase.
   markConversationRead(db, conversationId);
 
   const messages = getMessages(db, conversationId, conversation.account_id);
   const tags = getConversationTags(db, conversationId);
   const account = db
-    .prepare(`SELECT id, email, name, first_name, profile_photo_url FROM accounts WHERE id = ?`)
+    .prepare(`SELECT id, email, name, first_name, last_name, profile_photo_url FROM accounts WHERE id = ?`)
     .get(conversation.account_id);
 
   return NextResponse.json({
@@ -44,6 +55,7 @@ export async function GET(request, { params }) {
       accountEmail: account?.email,
       accountName: account?.name,
       accountFirstName: account?.first_name,
+      accountLastName: account?.last_name,
       accountPhotoUrl: account?.profile_photo_url,
       tags,
     },

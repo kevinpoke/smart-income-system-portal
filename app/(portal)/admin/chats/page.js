@@ -3,7 +3,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GlassCard, Badge, GhostButton } from "@/components/ui/Primitives";
 import Avatar from "@/components/ui/Avatar";
-import { Plus, Send, ClipboardCheck, MoreVertical, RefreshCw, MailOpen, X } from "lucide-react";
+import {
+  Plus,
+  Send,
+  ClipboardCheck,
+  MoreVertical,
+  RefreshCw,
+  MailOpen,
+  X,
+  Search,
+  BarChart3,
+} from "lucide-react";
 import clsx from "clsx";
 
 function formatTime(iso) {
@@ -13,6 +23,211 @@ function formatTime(iso) {
   } catch {
     return "";
   }
+}
+
+// Part 2: graceful First + Last name display -- falls back to whichever
+// pieces are actually present (never renders literal "undefined"/"null").
+// Order of preference: "First Last" -> First only -> Last only -> plain
+// `name` -> email -> a neutral placeholder.
+function displayFullName({ firstName, lastName, name, email }) {
+  const first = (firstName || "").trim();
+  const last = (lastName || "").trim();
+  if (first && last) return `${first} ${last}`;
+  if (first) return first;
+  if (last) return last;
+  if (name && name.trim()) return name.trim();
+  if (email && email.trim()) return email.trim();
+  return "Unknown";
+}
+
+function formatDurationMs(ms) {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return "—";
+  const totalSeconds = Math.round(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function StatCard({ label, value, sub, className = "" }) {
+  return (
+    <div className={clsx("rounded-xl border border-white/10 bg-white/[0.03] p-3.5", className)}>
+      <div className="text-[11px] font-medium uppercase tracking-wide text-[#707070]">{label}</div>
+      <div className="mt-1 text-2xl font-bold text-white">{value}</div>
+      {sub && <div className="mt-0.5 text-[11px] text-[#B0B0B0]">{sub}</div>}
+    </div>
+  );
+}
+
+const PERIOD_OPTIONS = [
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "last3", label: "Last 3 Days" },
+  { value: "lastweek", label: "Last Week" },
+  { value: "lastmonth", label: "Last Month" },
+  { value: "custom", label: "Custom" },
+];
+
+// Part 1: Analytics tab. Fetches ONE server-side aggregate payload from
+// /api/admin/support/analytics -- never fetches raw account/message rows
+// for client-side computation (per the spec's "ANALYTICS PERFORMANCE"
+// requirement).
+function AnalyticsTab() {
+  const [period, setPeriod] = useState("lastweek");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  const [data, setData] = useState(null);
+  const [status, setStatus] = useState("loading"); // loading | ready | error
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setStatus((s) => (s === "ready" ? s : "loading"));
+    try {
+      const params = new URLSearchParams();
+      params.set("period", period);
+      if (period === "custom") {
+        if (customStart) params.set("start", customStart);
+        if (customEnd) params.set("end", customEnd);
+      }
+      const res = await fetch(`/api/admin/support/analytics?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error || "Unable to load analytics.");
+        setStatus("error");
+        return;
+      }
+      setData(json);
+      setError("");
+      setStatus("ready");
+    } catch {
+      setError("Something went wrong loading analytics.");
+      setStatus("error");
+    }
+  }, [period, customStart, customEnd]);
+
+  useEffect(() => {
+    // fetch-on-mount / on-filter-change, same pattern as the rest of this page.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+  }, [load]);
+
+  const responseTimeText = useMemo(() => {
+    if (!data?.responseTime) return null;
+    if (data.responseTime.error) return data.responseTime.error;
+    if (data.responseTime.avgMs == null) return "No manually-answered conversations in this period yet.";
+    return `${formatDurationMs(data.responseTime.avgMs)} — Based on ${data.responseTime.count} ${
+      data.responseTime.count === 1 ? "reply" : "replies"
+    }`;
+  }, [data]);
+
+  return (
+    <GlassCard className="p-5">
+      <div className="mb-4 flex items-center gap-2">
+        <BarChart3 className="h-4 w-4 text-[#32B5FF]" />
+        <h3 className="text-sm font-semibold text-white">Support Analytics</h3>
+      </div>
+
+      {status === "error" && (
+        <div className="mb-4 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <StatCard label="Total Members" value={data ? data.totalMembers : "—"} />
+        <StatCard
+          label="Logged In At Least Once"
+          value={data ? data.loggedInAtLeastOnce : "—"}
+          sub={data ? `${data.loggedInAtLeastOnce} / ${data.totalMembers} · ${data.loggedInPct}%` : undefined}
+        />
+        <StatCard
+          label="ISP Applications Submitted"
+          value={data ? data.ispSubmitted : "—"}
+          sub={
+            data
+              ? `${data.ispSubmitted} / ${data.loggedInAtLeastOnce} · ${data.ispSubmittedPct}%`
+              : undefined
+          }
+        />
+        <StatCard
+          label="ISP Approved / Activated"
+          value={data ? data.ispApprovedActivated : "—"}
+          sub={
+            data
+              ? `${data.ispApprovedActivated} / ${data.loggedInAtLeastOnce} · ${data.ispApprovedActivatedPct}%`
+              : undefined
+          }
+        />
+        <StatCard
+          label="Bridge Waitlist"
+          value={data ? data.bridgeWaitlist : "—"}
+          sub={
+            data
+              ? `${data.bridgeWaitlistPctOfTotal}% of Total · ${data.bridgeWaitlistPctOfLoggedIn}% of Logged-In`
+              : undefined
+          }
+        />
+        <StatCard label="Disabled Users" value={data ? data.disabledUsers : "—"} />
+        <StatCard label="Module Timer Removed" value={data ? data.moduleTimerRemoved : "—"} />
+        <StatCard label="Balance Increased" value={data ? data.balanceIncreased : "—"} />
+      </div>
+
+      <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+            Average Support Response Time
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {PERIOD_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setPeriod(opt.value)}
+                className={clsx(
+                  "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  period === opt.value
+                    ? "bg-[#32B5FF] text-[#06121a]"
+                    : "bg-white/5 text-[#B0B0B0] hover:bg-white/10"
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {period === "custom" && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <label className="text-[11px] text-[#B0B0B0]">
+              Start
+              <input
+                type="date"
+                value={customStart}
+                onChange={(e) => setCustomStart(e.target.value)}
+                className="ml-1.5 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
+              />
+            </label>
+            <label className="text-[11px] text-[#B0B0B0]">
+              End
+              <input
+                type="date"
+                value={customEnd}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                className="ml-1.5 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
+              />
+            </label>
+            <button
+              onClick={load}
+              className="rounded-lg bg-[#32B5FF]/20 px-2.5 py-1 text-[11px] font-medium text-[#32B5FF] hover:bg-[#32B5FF]/30"
+            >
+              Apply
+            </button>
+          </div>
+        )}
+        <div className="text-xl font-bold text-white">{responseTimeText || "—"}</div>
+      </div>
+    </GlassCard>
+  );
 }
 
 function TagManager({ tags, onCreateTag, onDeleteTag, creating, deletingTagId }) {
@@ -86,13 +301,23 @@ function TagManager({ tags, onCreateTag, onDeleteTag, creating, deletingTagId })
 }
 
 export default function AdminChatsPage() {
+  // Part 1: 5th tab. "inbox" preserves all 4 existing inbox filter tabs'
+  // combined UI (All/Read/Unread + tag chips + Upsell live inside the
+  // inbox workspace itself, per the existing app convention where those
+  // were never separate top-level page tabs to begin with -- see the
+  // ORIGINAL 4-tab layout below). "analytics" is the new 5th tab.
+  const [activeTab, setActiveTab] = useState("inbox");
+
   const [conversations, setConversations] = useState([]);
   const [listStatus, setListStatus] = useState("loading"); // loading | ready | error
-  const [filter, setFilter] = useState("all"); // all | read | unread
+  const [filter, setFilter] = useState("all"); // all | read | unread | upsell
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
   const [tags, setTags] = useState([]);
   const [selectedTagIds, setSelectedTagIds] = useState([]);
   const [creatingTag, setCreatingTag] = useState(false);
   const [deletingTagId, setDeletingTagId] = useState(null);
+  const [counts, setCounts] = useState({ unreadCount: 0, upsellCount: 0 });
 
   const [selectedId, setSelectedId] = useState(null);
   const [detail, setDetail] = useState(null); // { conversation, messages }
@@ -103,6 +328,24 @@ export default function AdminChatsPage() {
   const [sendError, setSendError] = useState("");
 
   const [contextMenu, setContextMenu] = useState(null); // { id, x, y }
+
+  // Part 6: scroll-to-bottom control for the message pane. `pendingScroll`
+  // forces a scroll-to-bottom on the NEXT render for: initial conversation
+  // open, switching conversations, and after the admin sends a message.
+  // It deliberately does NOT force-scroll on every silent poll re-render,
+  // so an admin who has scrolled up to read history isn't yanked back
+  // down by the 4s background refresh.
+  const messagePaneRef = useRef(null);
+  const pendingScrollRef = useRef(false);
+
+  function scrollMessagePaneToBottom() {
+    const el = messagePaneRef.current;
+    if (!el) return;
+    // rAF so this runs after the DOM has painted the new message list.
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }
 
   // Portal reliability pass: keep the latest selectedId/detail message
   // count in refs so the polling intervals below (which capture these in
@@ -126,38 +369,43 @@ export default function AdminChatsPage() {
       const params = new URLSearchParams();
       params.set("filter", filter);
       if (selectedTagIds.length > 0) params.set("tags", selectedTagIds.join(","));
+      if (search) params.set("search", search);
       const res = await fetch(`/api/admin/support/conversations?${params.toString()}`, {
         cache: "no-store",
       });
       if (!res.ok) throw new Error("failed");
       const data = await res.json();
       setConversations(data.conversations || []);
+      if (data.counts) setCounts(data.counts);
       setListStatus("ready");
     } catch {
       setListStatus("error");
     }
-  }, [filter, selectedTagIds]);
+  }, [filter, selectedTagIds, search]);
 
   // Portal reliability pass: silent variant used by the polling interval
   // -- never flips listStatus back to "loading" (which would blank the
   // conversation list and disrupt browsing) and never clobbers state on
-  // a transient network error. Preserves whatever filter/tag selection
-  // is currently active since it reads the same params as loadConversations.
+  // a transient network error. Preserves whatever filter/tag/search
+  // selection is currently active since it reads the same params as
+  // loadConversations.
   const silentRefreshList = useCallback(async () => {
     try {
       const params = new URLSearchParams();
       params.set("filter", filter);
       if (selectedTagIds.length > 0) params.set("tags", selectedTagIds.join(","));
+      if (search) params.set("search", search);
       const res = await fetch(`/api/admin/support/conversations?${params.toString()}`, {
         cache: "no-store",
       });
       if (!res.ok) return;
       const data = await res.json();
       setConversations(data.conversations || []);
+      if (data.counts) setCounts(data.counts);
     } catch {
       // keep the last known list on a transient network error
     }
-  }, [filter, selectedTagIds]);
+  }, [filter, selectedTagIds, search]);
 
   const loadTags = useCallback(async () => {
     try {
@@ -181,21 +429,31 @@ export default function AdminChatsPage() {
     loadTags();
   }, [loadTags]);
 
+  // Part 3: debounce the search box so every keystroke doesn't fire a
+  // server round-trip -- 300ms after the admin stops typing.
+  useEffect(() => {
+    const id = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(id);
+  }, [searchInput]);
+
   // Portal reliability pass: poll the conversation list every ~4s so a
   // NEW customer message (a new conversation, or a bump to the top of an
   // existing one) appears in the admin inbox automatically -- per spec,
   // "no hard refresh should be required" and newest-activity sorting/
   // unread indicators/timestamps must be preserved (they already are,
   // since silentRefreshList re-fetches through the exact same
-  // listConversationsForAdmin() query the initial load uses).
+  // listConversationsForAdmin() query the initial load uses). Only polls
+  // while the inbox tab is active.
   useEffect(() => {
+    if (activeTab !== "inbox") return undefined;
     const id = setInterval(silentRefreshList, 4000);
     return () => clearInterval(id);
-  }, [silentRefreshList]);
+  }, [silentRefreshList, activeTab]);
 
   const loadDetail = useCallback(
-    async (conversationId) => {
+    async (conversationId, { forceScrollBottom = false } = {}) => {
       setDetailStatus("loading");
+      if (forceScrollBottom) pendingScrollRef.current = true;
       try {
         const res = await fetch(`/api/admin/support/conversations/${conversationId}`, {
           cache: "no-store",
@@ -205,7 +463,8 @@ export default function AdminChatsPage() {
         setDetail(data);
         setDetailStatus("ready");
         // Opening (GET) already marked customer messages read server-side;
-        // refresh the list so the green dot clears immediately.
+        // refresh the list so the green dot/Unread badge count clears
+        // immediately.
         loadConversations();
       } catch {
         setDetailStatus("error");
@@ -213,6 +472,16 @@ export default function AdminChatsPage() {
     },
     [loadConversations]
   );
+
+  // Part 6: force scroll-to-bottom exactly when the message list actually
+  // changed AND a scroll was requested (initial open / conversation
+  // switch / after send) -- never on unrelated re-renders.
+  useEffect(() => {
+    if (pendingScrollRef.current && detailStatus === "ready") {
+      scrollMessagePaneToBottom();
+      pendingScrollRef.current = false;
+    }
+  }, [detail, detailStatus]);
 
   // Portal reliability pass: silently polls the currently-open thread's
   // messages every ~4s so a new customer message arriving WHILE the
@@ -225,7 +494,9 @@ export default function AdminChatsPage() {
   // silently if no conversation is selected, and never disrupts the
   // scroll position via a "Loading..." flash on every tick (only updates
   // `detail`, not `detailStatus`, unless the fetch fails while nothing
-  // has loaded yet).
+  // has loaded yet). Part 6: deliberately does NOT force a scroll here --
+  // only the initial open/switch/send actions do that, so an admin
+  // reading older history during a poll tick is never yanked to bottom.
   const silentRefreshDetail = useCallback(async () => {
     const currentId = selectedIdRef.current;
     if (!currentId) return;
@@ -249,14 +520,16 @@ export default function AdminChatsPage() {
   }, [loadConversations]);
 
   useEffect(() => {
+    if (activeTab !== "inbox") return undefined;
     const id = setInterval(silentRefreshDetail, 4000);
     return () => clearInterval(id);
-  }, [silentRefreshDetail]);
+  }, [silentRefreshDetail, activeTab]);
 
   function selectConversation(id) {
     setSelectedId(id);
     setContextMenu(null);
-    loadDetail(id);
+    // Part 6: switching conversations always starts at the bottom/newest.
+    loadDetail(id, { forceScrollBottom: true });
   }
 
   async function handleCreateTag(name) {
@@ -343,7 +616,9 @@ export default function AdminChatsPage() {
         return;
       }
       setDraft("");
-      await loadDetail(selectedId);
+      // Part 6: after the admin sends a message, keep the pane pinned to
+      // the newest message at the bottom -- never jump toward the top.
+      await loadDetail(selectedId, { forceScrollBottom: true });
       await loadConversations();
     } catch {
       setSendError("Something went wrong. Please try again.");
@@ -368,289 +643,377 @@ export default function AdminChatsPage() {
     [detail]
   );
 
+  const headerName = displayFullName({
+    firstName: detail?.conversation?.accountFirstName || selectedConversationMeta?.accountFirstName,
+    lastName: detail?.conversation?.accountLastName || selectedConversationMeta?.accountLastName,
+    name: detail?.conversation?.accountName || selectedConversationMeta?.accountName,
+    email: detail?.conversation?.accountEmail || selectedConversationMeta?.accountEmail,
+  });
+
   return (
     <div
-      className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]"
-      onClick={() => contextMenu && setContextMenu(null)}
+      className="flex min-h-0 flex-col gap-4"
+      style={{ height: "calc(100vh - 230px)", minHeight: "560px" }}
     >
-      <GlassCard className="overflow-hidden">
-        <div className="border-b border-white/10 px-4 py-3">
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-white">Support Inbox</h3>
-            <button
-              onClick={loadConversations}
-              className="rounded-lg bg-white/5 p-1.5 text-[#B0B0B0] hover:bg-white/10"
-              title="Refresh"
-            >
-              <RefreshCw className={clsx("h-3.5 w-3.5", listStatus === "loading" && "animate-spin")} />
-            </button>
-          </div>
-          <div className="flex gap-1.5">
-            {["all", "read", "unread"].map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={clsx(
-                  "rounded-full px-2.5 py-1 text-[11px] font-medium capitalize transition-colors",
-                  filter === f ? "bg-[#32B5FF] text-[#06121a]" : "bg-white/5 text-[#B0B0B0] hover:bg-white/10"
-                )}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
-          {tags.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {tags.map((tag) => (
-                <button
-                  key={tag.id}
-                  onClick={() => toggleFilterTag(tag.id)}
-                  className={clsx(
-                    "rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors",
-                    selectedTagIds.includes(tag.id)
-                      ? "bg-[#32B5FF]/30 text-[#32B5FF]"
-                      : "bg-white/5 text-[#707070] hover:bg-white/10"
-                  )}
-                >
-                  {tag.name}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="max-h-[600px] overflow-y-auto">
-          {listStatus === "loading" && (
-            <div className="p-4 text-xs text-[#707070]">Loading conversations…</div>
-          )}
-          {listStatus === "error" && (
-            <div className="p-4 text-xs text-red-400">Unable to load conversations.</div>
-          )}
-          {listStatus === "ready" && conversations.length === 0 && (
-            <div className="p-4 text-xs text-[#707070]">No conversations match this filter.</div>
-          )}
-          {listStatus === "ready" &&
-            conversations.map((c) => (
-              <div
-                key={c.id}
-                onClick={() => selectConversation(c.id)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setContextMenu({ id: c.id, x: e.clientX, y: e.clientY });
-                }}
-                className={clsx(
-                  "group flex w-full cursor-pointer flex-col gap-1 border-b border-white/5 px-4 py-3 text-left transition-colors",
-                  selectedId === c.id ? "bg-[#32B5FF]/10" : "hover:bg-white/[0.03]"
-                )}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-white">
-                    <Avatar
-                      photoUrl={c.accountPhotoUrl}
-                      firstName={c.accountFirstName}
-                      email={c.accountEmail}
-                      size={24}
-                    />
-                    {c.unread && (
-                      <span className="h-2 w-2 flex-shrink-0 rounded-full bg-green-500" title="Unread" />
-                    )}
-                    <span className="truncate">{c.accountFirstName || c.accountName || c.accountEmail}</span>
-                  </span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setContextMenu({ id: c.id, x: e.clientX, y: e.clientY });
-                    }}
-                    className="rounded p-0.5 text-[#707070] opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
-                    title="More actions"
-                  >
-                    <MoreVertical className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-                <span className="truncate text-xs text-[#707070]">{c.lastMessagePreview}</span>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-[#707070]">{formatTime(c.lastMessageAt)}</span>
-                  <div className="flex flex-wrap gap-1">
-                    {(c.tags || []).map((tag) => (
-                      <Badge key={tag.id} tone="accent" className="text-[10px]">
-                        {tag.name}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ))}
-        </div>
-      </GlassCard>
-
-      {contextMenu && (
-        <div
-          className="fixed z-50 w-48 rounded-lg border border-white/10 bg-[#1E1E1E] py-1 shadow-2xl"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(e) => e.stopPropagation()}
-        >
+      {/* TOP: Admin Support header/tabs (Part 7 layout requirement) */}
+      <div className="flex flex-shrink-0 items-center gap-2 border-b border-white/10 pb-3">
+        {[
+          { id: "inbox", label: "Support Inbox" },
+          { id: "analytics", label: "Analytics" },
+        ].map((t) => (
           <button
-            onClick={() => handleMarkUnread(contextMenu.id)}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-white hover:bg-white/10"
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={clsx(
+              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+              activeTab === t.id
+                ? "bg-[#32B5FF]/15 text-[#32B5FF]"
+                : "text-[#B0B0B0] hover:bg-white/5 hover:text-white"
+            )}
           >
-            <MailOpen className="h-3.5 w-3.5" /> Mark Unread
+            {t.label}
           </button>
+        ))}
+      </div>
+
+      {activeTab === "analytics" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <AnalyticsTab />
         </div>
-      )}
-
-      <GlassCard className="flex h-[664px] flex-col overflow-hidden">
-        {!selectedId ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-[#707070]">
-            Select a conversation to view the thread.
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-              <div className="flex items-center gap-2.5">
-                <Avatar
-                  photoUrl={detail?.conversation?.accountPhotoUrl || selectedConversationMeta?.accountPhotoUrl}
-                  firstName={detail?.conversation?.accountFirstName || selectedConversationMeta?.accountFirstName}
-                  email={detail?.conversation?.accountEmail || selectedConversationMeta?.accountEmail}
-                  size={32}
-                />
-                <div>
-                  <div className="text-sm font-semibold text-white">
-                    {detail?.conversation?.accountFirstName ||
-                      detail?.conversation?.accountName ||
-                      selectedConversationMeta?.accountName}
-                  </div>
-                  <div className="text-xs text-[#707070]">
-                    {detail?.conversation?.accountEmail || selectedConversationMeta?.accountEmail}
-                  </div>
-                </div>
+      ) : (
+        // Part 7: high-volume support inbox layout. Fills the remaining
+        // viewport height (min-h-0 + flex-1 on the parent, h-full on this
+        // grid) with a two-pane workspace: LEFT = conversation list
+        // (independently scrolling), RIGHT = selected conversation
+        // (header + independently-scrolling message history + composer
+        // pinned at the bottom).
+        <div
+          className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[300px_1fr]"
+          onClick={() => contextMenu && setContextMenu(null)}
+        >
+          <GlassCard className="flex min-h-0 flex-col overflow-hidden">
+            <div className="flex-shrink-0 border-b border-white/10 px-3 py-2.5">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-white">Support Inbox</h3>
+                <button
+                  onClick={loadConversations}
+                  className="rounded-lg bg-white/5 p-1.5 text-[#B0B0B0] hover:bg-white/10"
+                  title="Refresh"
+                >
+                  <RefreshCw className={clsx("h-3.5 w-3.5", listStatus === "loading" && "animate-spin")} />
+                </button>
               </div>
-              <TagManager
-                tags={tags}
-                onCreateTag={handleCreateTag}
-                onDeleteTag={handleDeleteTag}
-                creating={creatingTag}
-                deletingTagId={deletingTagId}
-              />
-            </div>
 
-            {tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 border-b border-white/10 px-5 py-3">
-                {tags.map((tag) => {
-                  const active = detailTagIds.has(tag.id);
-                  return (
+              {/* Part 3: search by first/last/full name/email */}
+              <div className="relative mb-2">
+                <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]" />
+                <input
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Search name or email…"
+                  className="w-full rounded-lg border border-white/10 bg-white/5 py-1.5 pl-7 pr-2 text-xs text-white placeholder-[#707070] outline-none focus:ring-1 focus:ring-[#32B5FF]"
+                />
+                {searchInput && (
+                  <button
+                    onClick={() => setSearchInput("")}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[#707070] hover:text-white"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+
+              {/* Part 4: filter tabs with counts on Unread/Upsell only */}
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { id: "all", label: "All" },
+                  { id: "read", label: "Read" },
+                  { id: "unread", label: "Unread", count: counts.unreadCount },
+                  { id: "upsell", label: "Upsell", count: counts.upsellCount },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => setFilter(f.id)}
+                    className={clsx(
+                      "flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      filter === f.id ? "bg-[#32B5FF] text-[#06121a]" : "bg-white/5 text-[#B0B0B0] hover:bg-white/10"
+                    )}
+                  >
+                    {f.label}
+                    {typeof f.count === "number" && (
+                      <span
+                        className={clsx(
+                          "rounded-full px-1.5 text-[10px] font-bold",
+                          filter === f.id ? "bg-[#06121a]/20 text-[#06121a]" : "bg-white/10 text-white"
+                        )}
+                      >
+                        {f.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {tags.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {tags.map((tag) => (
                     <button
                       key={tag.id}
-                      onClick={() => handleToggleConversationTag(tag.id, !active)}
+                      onClick={() => toggleFilterTag(tag.id)}
                       className={clsx(
-                        "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
-                        active
-                          ? "bg-[#32B5FF] text-[#06121a]"
-                          : "bg-white/5 text-[#B0B0B0] hover:bg-white/10"
+                        "rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors",
+                        selectedTagIds.includes(tag.id)
+                          ? "bg-[#32B5FF]/30 text-[#32B5FF]"
+                          : "bg-white/5 text-[#707070] hover:bg-white/10"
                       )}
                     >
                       {tag.name}
                     </button>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="flex-1 space-y-3 overflow-y-auto p-5">
-              {detailStatus === "loading" && (
-                <div className="mt-20 text-center text-sm text-[#707070]">Loading messages…</div>
-              )}
-              {detailStatus === "error" && (
-                <div className="mt-20 text-center text-sm text-red-400">
-                  Unable to load this conversation.
+                  ))}
                 </div>
               )}
-              {detailStatus === "ready" && (detail?.messages || []).length === 0 && (
-                <div className="mt-20 text-center text-sm text-[#707070]">No messages yet.</div>
+            </div>
+
+            {/* LEFT PANE: internal scrolling, tighter rows (Part 7) */}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {listStatus === "loading" && (
+                <div className="p-3 text-xs text-[#707070]">Loading conversations…</div>
               )}
-              {detailStatus === "ready" &&
-                (detail?.messages || []).map((m) => {
-                  const isAdmin = m.senderRole === "admin";
-                  // Canonical sender identity: ALWAYS the per-message
-                  // senderFirstName/senderPhotoUrl fields computed
-                  // server-side by lib/supportEngine.js
-                  // enrichMessagesWithIdentity() (see lib/supportEngine.js
-                  // for the single canonical sender-display resolver).
-                  // Never fall back to conversation-level metadata
-                  // (detail.conversation.accountFirstName/accountPhotoUrl)
-                  // here -- that field describes whoever OWNS the
-                  // conversation, not necessarily who sent this specific
-                  // message, and mixing the two was the root cause of the
-                  // Ashley-misattribution bug (a customer message could
-                  // end up rendered with stale/wrong identity if the
-                  // conversation-level fields were used as the source of
-                  // truth instead of the per-message ones the server
-                  // already resolved correctly).
-                  const displayName = isAdmin
-                    ? m.senderFirstName || "Ashley"
-                    : m.senderFirstName || "Customer";
-                  const photoUrl = m.senderPhotoUrl;
+              {listStatus === "error" && (
+                <div className="p-3 text-xs text-red-400">Unable to load conversations.</div>
+              )}
+              {listStatus === "ready" && conversations.length === 0 && (
+                <div className="p-3 text-xs text-[#707070]">No conversations match this filter.</div>
+              )}
+              {listStatus === "ready" &&
+                conversations.map((c) => {
+                  const rowName = displayFullName({
+                    firstName: c.accountFirstName,
+                    lastName: c.accountLastName,
+                    name: c.accountName,
+                    email: c.accountEmail,
+                  });
                   return (
                     <div
-                      key={m.id}
-                      className={`flex items-end gap-2 ${isAdmin ? "justify-end" : "justify-start"}`}
-                    >
-                      {!isAdmin && (
-                        <Avatar photoUrl={photoUrl} firstName={displayName} size={28} />
+                      key={c.id}
+                      onClick={() => selectConversation(c.id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setContextMenu({ id: c.id, x: e.clientX, y: e.clientY });
+                      }}
+                      className={clsx(
+                        "group flex w-full cursor-pointer flex-col gap-0.5 border-b border-white/5 px-3 py-2 text-left transition-colors",
+                        selectedId === c.id ? "bg-[#32B5FF]/10" : "hover:bg-white/[0.03]"
                       )}
-                      <div
-                        className={`max-w-[70%] rounded-2xl px-4 py-2.5 text-sm ${
-                          isAdmin ? "bg-[#32B5FF] text-[#06121a]" : "bg-white/10 text-white"
-                        }`}
-                      >
-                        <div
-                          className={`mb-0.5 text-[10px] font-semibold ${
-                            isAdmin ? "text-[#06121a]/70" : "text-[#32B5FF]"
-                          }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-white">
+                          <Avatar
+                            photoUrl={c.accountPhotoUrl}
+                            firstName={c.accountFirstName}
+                            email={c.accountEmail}
+                            size={20}
+                          />
+                          {c.unread && (
+                            <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-green-500" title="Unread" />
+                          )}
+                          <span className="truncate">{rowName}</span>
+                          {c.accountUpsellPurchased && (
+                            <Badge tone="accent" className="flex-shrink-0 px-1.5 py-0 text-[9px]">
+                              Upsell
+                            </Badge>
+                          )}
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setContextMenu({ id: c.id, x: e.clientX, y: e.clientY });
+                          }}
+                          className="rounded p-0.5 text-[#707070] opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
+                          title="More actions"
                         >
-                          {displayName}
-                        </div>
-                        <div>{m.body}</div>
-                        <div
-                          className={`mt-1 text-[10px] ${
-                            isAdmin ? "text-[#06121a]/60" : "text-[#B0B0B0]"
-                          }`}
-                        >
-                          {formatTime(m.createdAt)}
+                          <MoreVertical className="h-3 w-3" />
+                        </button>
+                      </div>
+                      <span className="truncate pl-[26px] text-[10px] text-[#707070]">{c.accountEmail}</span>
+                      <span className="truncate pl-[26px] text-[11px] text-[#909090]">{c.lastMessagePreview}</span>
+                      <div className="flex items-center justify-between pl-[26px]">
+                        <span className="text-[9px] text-[#707070]">{formatTime(c.lastMessageAt)}</span>
+                        <div className="flex flex-wrap gap-1">
+                          {(c.tags || []).map((tag) => (
+                            <Badge key={tag.id} tone="accent" className="px-1.5 py-0 text-[9px]">
+                              {tag.name}
+                            </Badge>
+                          ))}
                         </div>
                       </div>
-                      {isAdmin && <Avatar photoUrl={photoUrl} firstName={displayName} size={28} />}
                     </div>
                   );
                 })}
             </div>
+          </GlassCard>
 
-            {sendError && (
-              <div className="border-t border-white/10 px-5 py-2 text-xs text-red-400">
-                {sendError}
-              </div>
-            )}
-
-            <div className="border-t border-white/10 p-3">
-              <div className="flex items-center gap-2">
-                <input
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                  placeholder="Reply as admin..."
-                  disabled={sending}
-                  className="flex-1 rounded-xl bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder-[#707070] outline-none focus:ring-1 focus:ring-[#32B5FF] disabled:opacity-60"
-                />
-                <button
-                  onClick={handleSend}
-                  disabled={sending || !draft.trim()}
-                  className="rounded-xl bg-[#32B5FF] p-2.5 text-[#06121a] hover:bg-[#4dc0ff] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Send className="h-4 w-4" />
-                </button>
-              </div>
+          {contextMenu && (
+            <div
+              className="fixed z-50 w-48 rounded-lg border border-white/10 bg-[#1E1E1E] py-1 shadow-2xl"
+              style={{ top: contextMenu.y, left: contextMenu.x }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => handleMarkUnread(contextMenu.id)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-white hover:bg-white/10"
+              >
+                <MailOpen className="h-3.5 w-3.5" /> Mark Unread
+              </button>
             </div>
-          </>
-        )}
-      </GlassCard>
+          )}
+
+          {/* RIGHT PANE: compact header, message history takes most of the
+              vertical space and scrolls independently, composer pinned at
+              the bottom (Part 7). */}
+          <GlassCard className="flex min-h-0 flex-col overflow-hidden">
+            {!selectedId ? (
+              <div className="flex flex-1 items-center justify-center text-sm text-[#707070]">
+                Select a conversation to view the thread.
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-shrink-0 items-center justify-between border-b border-white/10 px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <Avatar
+                      photoUrl={detail?.conversation?.accountPhotoUrl || selectedConversationMeta?.accountPhotoUrl}
+                      firstName={detail?.conversation?.accountFirstName || selectedConversationMeta?.accountFirstName}
+                      email={detail?.conversation?.accountEmail || selectedConversationMeta?.accountEmail}
+                      size={28}
+                    />
+                    <div>
+                      <div className="text-sm font-semibold text-white">{headerName}</div>
+                      <div className="text-[11px] text-[#707070]">
+                        {detail?.conversation?.accountEmail || selectedConversationMeta?.accountEmail}
+                      </div>
+                    </div>
+                  </div>
+                  <TagManager
+                    tags={tags}
+                    onCreateTag={handleCreateTag}
+                    onDeleteTag={handleDeleteTag}
+                    creating={creatingTag}
+                    deletingTagId={deletingTagId}
+                  />
+                </div>
+
+                {tags.length > 0 && (
+                  <div className="flex flex-shrink-0 flex-wrap gap-1.5 border-b border-white/10 px-4 py-2">
+                    {tags.map((tag) => {
+                      const active = detailTagIds.has(tag.id);
+                      return (
+                        <button
+                          key={tag.id}
+                          onClick={() => handleToggleConversationTag(tag.id, !active)}
+                          className={clsx(
+                            "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                            active
+                              ? "bg-[#32B5FF] text-[#06121a]"
+                              : "bg-white/5 text-[#B0B0B0] hover:bg-white/10"
+                          )}
+                        >
+                          {tag.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Part 6/7: independently-scrolling message history */}
+                <div ref={messagePaneRef} className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-4">
+                  {detailStatus === "loading" && (
+                    <div className="mt-20 text-center text-sm text-[#707070]">Loading messages…</div>
+                  )}
+                  {detailStatus === "error" && (
+                    <div className="mt-20 text-center text-sm text-red-400">
+                      Unable to load this conversation.
+                    </div>
+                  )}
+                  {detailStatus === "ready" && (detail?.messages || []).length === 0 && (
+                    <div className="mt-20 text-center text-sm text-[#707070]">No messages yet.</div>
+                  )}
+                  {detailStatus === "ready" &&
+                    (detail?.messages || []).map((m) => {
+                      const isAdmin = m.senderRole === "admin";
+                      // Canonical sender identity: ALWAYS the per-message
+                      // senderFirstName/senderPhotoUrl fields computed
+                      // server-side by lib/supportEngine.js
+                      // enrichMessagesWithIdentity() (see lib/supportEngine.js
+                      // for the single canonical sender-display resolver).
+                      const displayName = isAdmin
+                        ? m.senderFirstName || "Ashley"
+                        : m.senderFirstName || "Customer";
+                      const photoUrl = m.senderPhotoUrl;
+                      return (
+                        <div
+                          key={m.id}
+                          className={`flex items-end gap-2 ${isAdmin ? "justify-end" : "justify-start"}`}
+                        >
+                          {!isAdmin && (
+                            <Avatar photoUrl={photoUrl} firstName={displayName} size={24} />
+                          )}
+                          <div
+                            className={`max-w-[70%] rounded-2xl px-3.5 py-2 text-sm ${
+                              isAdmin ? "bg-[#32B5FF] text-[#06121a]" : "bg-white/10 text-white"
+                            }`}
+                          >
+                            <div
+                              className={`mb-0.5 text-[10px] font-semibold ${
+                                isAdmin ? "text-[#06121a]/70" : "text-[#32B5FF]"
+                              }`}
+                            >
+                              {displayName}
+                            </div>
+                            <div>{m.body}</div>
+                            <div
+                              className={`mt-1 text-[10px] ${
+                                isAdmin ? "text-[#06121a]/60" : "text-[#B0B0B0]"
+                              }`}
+                            >
+                              {formatTime(m.createdAt)}
+                            </div>
+                          </div>
+                          {isAdmin && <Avatar photoUrl={photoUrl} firstName={displayName} size={24} />}
+                        </div>
+                      );
+                    })}
+                </div>
+
+                {sendError && (
+                  <div className="flex-shrink-0 border-t border-white/10 px-4 py-2 text-xs text-red-400">
+                    {sendError}
+                  </div>
+                )}
+
+                <div className="flex-shrink-0 border-t border-white/10 p-2.5">
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                      placeholder="Reply as admin..."
+                      disabled={sending}
+                      className="flex-1 rounded-xl bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder-[#707070] outline-none focus:ring-1 focus:ring-[#32B5FF] disabled:opacity-60"
+                    />
+                    <button
+                      onClick={handleSend}
+                      disabled={sending || !draft.trim()}
+                      className="rounded-xl bg-[#32B5FF] p-2.5 text-[#06121a] hover:bg-[#4dc0ff] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Send className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </GlassCard>
+        </div>
+      )}
     </div>
   );
 }
