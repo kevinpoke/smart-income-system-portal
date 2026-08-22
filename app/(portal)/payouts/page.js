@@ -13,14 +13,17 @@ import { MapPin, TrendingUp, Info } from "lucide-react";
 //
 // TWO independent, server-enforced locked states for this page (see
 // app/api/payouts/estimates/route.js):
-//   1. `moduleLocked` -- NEW: the customer has not yet COMPLETED Module
-//      10 ("How Payouts Work"). Takes priority over gate 2 below per
-//      spec -- shown even if ISP setup is otherwise fully complete, and
-//      even if Module 10 is merely time-unlocked but not yet marked
-//      watched. This is completely independent of the existing 4-month
-//      WITHDRAWAL eligibility timer (see app/(portal)/withdrawals/page.js)
-//      -- completing Module 10 never resets/starts/shortens that timer,
-//      it only unlocks visibility of THIS page's estimate content.
+//   1. `moduleLocked` -- the customer has not yet COMPLETED Module 6
+//      ("Earnings Expectations" / "What You Can Expect to Earn"). Takes
+//      priority over gate 2 below per spec -- shown even if ISP setup
+//      is otherwise fully complete, and even if Module 6 is merely
+//      time-unlocked but not yet marked watched. This is completely
+//      independent of the existing 4-month WITHDRAWAL eligibility timer
+//      (see app/(portal)/withdrawals/page.js, gated on Module 10, a
+//      SEPARATE gate) -- completing Module 6 never resets/starts/
+//      shortens that timer, and never implies the customer can
+//      immediately withdraw; it only unlocks visibility of THIS page's
+//      estimate content.
 //   2. `locked` (with moduleLocked === false) -- pre-existing: ISP setup
 //      not yet fully active / city+state not on file (see
 //      lib/moduleAccess.js hasPayoutsNodesAccess()). DELIBERATELY
@@ -70,7 +73,7 @@ export default function PayoutsPage() {
         <FadeIn>
           <GlassCard className="p-5">
             <div className="text-sm font-semibold text-white">
-              Please complete the Payout module checklist to unlock your earnings (Module 10)
+              Please complete the “Earnings Expectations” (Module 6) to unlock this tab.
             </div>
           </GlassCard>
         </FadeIn>

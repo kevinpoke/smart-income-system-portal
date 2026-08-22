@@ -338,6 +338,24 @@ export default function AdminChatsPage() {
   const messagePaneRef = useRef(null);
   const pendingScrollRef = useRef(false);
 
+  // Part 4: keep the composer keyboard-ready without ever stealing focus
+  // during unrelated admin interactions (search, filters, tag manager,
+  // analytics date range, etc.). `composerRef` is the SAME ref used for
+  // the reply textarea's value/onChange -- nothing else in this file
+  // touches DOM focus imperatively. `focusComposer()` is only ever
+  // called from the three approved moments below (conversation initially
+  // opened, conversation switched, manual send succeeded) -- it is never
+  // wired into a poll interval or a plain render-tracking effect.
+  const composerRef = useRef(null);
+  function focusComposer() {
+    // rAF so this runs after the DOM has painted (composer may have just
+    // been re-enabled from `disabled` during sending, or the pane may
+    // have just mounted for the first selected conversation).
+    requestAnimationFrame(() => {
+      composerRef.current?.focus();
+    });
+  }
+
   function scrollMessagePaneToBottom() {
     const el = messagePaneRef.current;
     if (!el) return;
@@ -473,13 +491,20 @@ export default function AdminChatsPage() {
     [loadConversations]
   );
 
-  // Part 6: force scroll-to-bottom exactly when the message list actually
-  // changed AND a scroll was requested (initial open / conversation
-  // switch / after send) -- never on unrelated re-renders.
+  // Part 6/Part 4: force scroll-to-bottom AND refocus the composer
+  // exactly when the message list actually changed AND a scroll was
+  // requested (initial open / conversation switch / after send) -- never
+  // on unrelated re-renders. `pendingScrollRef` is ONLY ever set true by
+  // selectConversation() and the post-send loadDetail() call below, so
+  // this effect firing on every silent poll's `detail` update (which
+  // does NOT set pendingScrollRef) is a correctly-guarded no-op --
+  // that's what keeps the composer from aggressively stealing focus
+  // during background polling or unrelated UI interaction.
   useEffect(() => {
     if (pendingScrollRef.current && detailStatus === "ready") {
       scrollMessagePaneToBottom();
       pendingScrollRef.current = false;
+      focusComposer();
     }
   }, [detail, detailStatus]);
 
@@ -612,7 +637,10 @@ export default function AdminChatsPage() {
       });
       const data = await res.json();
       if (!res.ok) {
+        // Send failed: per spec, do NOT clear the typed draft and keep
+        // the composer focused so the admin can immediately retry.
         setSendError(data.error || "Unable to send message.");
+        focusComposer();
         return;
       }
       setDraft("");
@@ -621,7 +649,10 @@ export default function AdminChatsPage() {
       await loadDetail(selectedId, { forceScrollBottom: true });
       await loadConversations();
     } catch {
+      // Network/unexpected failure: same "don't destroy the draft, keep
+      // focus" guarantee as the !res.ok branch above.
       setSendError("Something went wrong. Please try again.");
+      focusComposer();
     } finally {
       setSending(false);
     }
@@ -802,50 +833,67 @@ export default function AdminChatsPage() {
                         setContextMenu({ id: c.id, x: e.clientX, y: e.clientY });
                       }}
                       className={clsx(
-                        "group flex w-full cursor-pointer flex-col gap-0.5 border-b border-white/5 px-3 py-2 text-left transition-colors",
+                        "group flex w-full cursor-pointer flex-col gap-0 border-b border-white/5 px-2.5 py-1.5 text-left transition-colors",
                         selectedId === c.id ? "bg-[#32B5FF]/10" : "hover:bg-white/[0.03]"
                       )}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-white">
-                          <Avatar
-                            photoUrl={c.accountPhotoUrl}
-                            firstName={c.accountFirstName}
-                            email={c.accountEmail}
-                            size={20}
-                          />
-                          {c.unread && (
-                            <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-green-500" title="Unread" />
-                          )}
-                          <span className="truncate">{rowName}</span>
-                          {c.accountUpsellPurchased && (
-                            <Badge tone="accent" className="flex-shrink-0 px-1.5 py-0 text-[9px]">
-                              Upsell
-                            </Badge>
-                          )}
+                      {/* Part 3: compact row -- name (left, non-shrinking)
+                          and email (right, flexes + truncates with an
+                          ellipsis via CSS only -- the underlying
+                          c.accountEmail value is never modified) share
+                          ONE line. Date/time is intentionally not
+                          rendered here (still available on `c` for any
+                          other consumer); unread dot + Upsell badge stay
+                          inline and compact so they don't add row
+                          height. */}
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <Avatar
+                          photoUrl={c.accountPhotoUrl}
+                          firstName={c.accountFirstName}
+                          email={c.accountEmail}
+                          size={18}
+                        />
+                        {c.unread && (
+                          <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-green-500" title="Unread" />
+                        )}
+                        <span className="flex-shrink-0 truncate text-[12.5px] font-medium text-white" style={{ maxWidth: "55%" }}>
+                          {rowName}
+                        </span>
+                        {c.accountUpsellPurchased && (
+                          <Badge tone="accent" className="flex-shrink-0 px-1.5 py-0 text-[9px]">
+                            Upsell
+                          </Badge>
+                        )}
+                        <span
+                          className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-right text-[11px] text-[#909090]"
+                          title={c.accountEmail}
+                        >
+                          {c.accountEmail}
                         </span>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             setContextMenu({ id: c.id, x: e.clientX, y: e.clientY });
                           }}
-                          className="rounded p-0.5 text-[#707070] opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
+                          className="flex-shrink-0 rounded p-0.5 text-[#707070] opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
                           title="More actions"
                         >
                           <MoreVertical className="h-3 w-3" />
                         </button>
                       </div>
-                      <span className="truncate pl-[26px] text-[10px] text-[#707070]">{c.accountEmail}</span>
-                      <span className="truncate pl-[26px] text-[11px] text-[#909090]">{c.lastMessagePreview}</span>
-                      <div className="flex items-center justify-between pl-[26px]">
-                        <span className="text-[9px] text-[#707070]">{formatTime(c.lastMessageAt)}</span>
-                        <div className="flex flex-wrap gap-1">
-                          {(c.tags || []).map((tag) => (
-                            <Badge key={tag.id} tone="accent" className="px-1.5 py-0 text-[9px]">
-                              {tag.name}
-                            </Badge>
-                          ))}
-                        </div>
+                      <div className="flex items-center justify-between gap-2 pl-[24px]">
+                        <span className="min-w-0 flex-1 truncate text-[10.5px] text-[#707070]">
+                          {c.lastMessagePreview}
+                        </span>
+                        {(c.tags || []).length > 0 && (
+                          <div className="flex flex-shrink-0 flex-wrap gap-1">
+                            {(c.tags || []).map((tag) => (
+                              <Badge key={tag.id} tone="accent" className="px-1.5 py-0 text-[9px]">
+                                {tag.name}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -993,6 +1041,7 @@ export default function AdminChatsPage() {
                 <div className="flex-shrink-0 border-t border-white/10 p-2.5">
                   <div className="flex items-center gap-2">
                     <input
+                      ref={composerRef}
                       value={draft}
                       onChange={(e) => setDraft(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleSend()}

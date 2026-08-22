@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import { getCurrentAccountRaw } from "@/lib/session";
 import { computePayoutEstimates } from "@/lib/payoutsEngine";
 import { getPayoutTargetAt } from "@/lib/earningsEngine";
-import { hasPayoutsNodesAccess, hasPayoutAccess } from "@/lib/moduleAccess";
+import { hasPayoutsNodesAccess, hasPayoutsTabModule6Access } from "@/lib/moduleAccess";
 
 // Authenticated customer's payout estimate rows. Purely derived from the
 // account id (for the seed) -- these are demo/marketing figures only and
@@ -21,10 +21,9 @@ import { hasPayoutsNodesAccess, hasPayoutAccess } from "@/lib/moduleAccess";
 // countdown here can never disagree with the Dashboard's "Next Payout"
 // countdown -- there is exactly one calculation, read from two routes.
 // This route's own payoutTargetAt/payoutAvailable fields are UNCHANGED by
-// the new Module 10 gate below -- they still describe the existing
-// 4-month WITHDRAWAL eligibility timer only (see
-// app/(portal)/withdrawals/page.js), never reset or influenced by module
-// completion.
+// the Module 6 gate below -- they still describe the existing 4-month
+// WITHDRAWAL eligibility timer only (see app/(portal)/withdrawals/page.js),
+// never reset or influenced by module completion.
 //
 // GATES (both independent, both server-enforced, both must pass to see
 // real payout content):
@@ -32,14 +31,18 @@ import { hasPayoutsNodesAccess, hasPayoutAccess } from "@/lib/moduleAccess";
 //      (isp_status === "active") AND city+state both stored. Deliberately
 //      independent of the admin's per-customer "Unlock All Modules"
 //      override, which affects training videos only.
-//   2. hasPayoutAccess() -- NEW: the authenticated customer has actually
-//      COMPLETED Module 10 ("How Payouts Work"), per
-//      account_module_progress.completed_at for module_key = 10 (see
-//      lib/moduleEngine.js isModuleCompleted() / lib/moduleAccess.js
-//      hasPayoutAccess()). This is a PAGE-ACCESS gate only -- it does
-//      NOT touch payoutTargetAt/payoutAvailable (the existing 4-month
-//      WITHDRAWAL timer), which remains entirely unchanged and is
-//      computed identically whether or not this gate passes.
+//   2. hasPayoutsTabModule6Access() -- the authenticated customer has
+//      actually COMPLETED Module 6 ("Earnings Expectations" / "What You
+//      Can Expect to Earn"), per account_module_progress.completed_at
+//      for module_key = 6 (see lib/moduleEngine.js isModuleCompleted() /
+//      lib/moduleAccess.js hasPayoutsTabModule6Access()). This is a
+//      PAGE-ACCESS gate only -- it does NOT touch payoutTargetAt/
+//      payoutAvailable (the existing 4-month WITHDRAWAL timer), which
+//      remains entirely unchanged and is computed identically whether
+//      or not this gate passes. This is the PAYOUTS TAB's own gate --
+//      completely separate from the Withdrawals page's own Module 10
+//      gate (see app/api/withdrawals/bank/route.js
+//      hasWithdrawalsModule10Access()).
 //
 // A customer failing gate 2 gets a dedicated `moduleLocked: true`
 // response with the exact required copy, distinct from the pre-existing
@@ -53,10 +56,13 @@ export async function GET() {
 
   const db = getDb();
 
-  // Module 10 completion gate takes priority: per spec, the Payouts
-  // section itself must show the Module 10 locked message until this
-  // passes, independent of ISP-setup completion state.
-  if (!hasPayoutAccess(db, account)) {
+  // Module 6 completion gate takes priority: per spec, the Payouts
+  // section itself must show the Module 6 locked message until this
+  // passes, independent of ISP-setup completion state. This is the
+  // Payouts TAB's own gate -- NOT the Withdrawals Module 10 gate (see
+  // app/api/withdrawals/bank/route.js), and NOT the existing 4-month
+  // withdrawal eligibility timer below.
+  if (!hasPayoutsTabModule6Access(db, account)) {
     return NextResponse.json({
       mode: "demo",
       locked: true,
