@@ -39,6 +39,7 @@ export default function WithdrawalsPage() {
 
   const [bank, setBank] = useState(null);
   const [locked, setLocked] = useState(true);
+  const [module10Locked, setModule10Locked] = useState(false);
   const [loadingBank, setLoadingBank] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -54,11 +55,13 @@ export default function WithdrawalsPage() {
         if (!cancelled) {
           setBank(data.bank || null);
           setLocked(Boolean(data.locked));
+          setModule10Locked(Boolean(data.module10Locked));
         }
       } catch {
         if (!cancelled) {
           setBank(null);
           setLocked(true);
+          setModule10Locked(false);
         }
       } finally {
         if (!cancelled) setLoadingBank(false);
@@ -115,7 +118,13 @@ export default function WithdrawalsPage() {
           title="Withdrawals"
           subtitle="Add your bank information to receive your earnings."
         />
-        <LocationRequiredCard body="Complete your ISP Setup to unlock Withdrawals." />
+        <LocationRequiredCard
+          body={
+            module10Locked
+              ? "Complete Module 10 to unlock"
+              : "Complete your ISP Setup to unlock Withdrawals."
+          }
+        />
       </div>
     );
   }

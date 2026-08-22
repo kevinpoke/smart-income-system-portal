@@ -10,7 +10,6 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
-import { useRouter } from "next/navigation";
 import { useEarningsSummary } from "@/lib/useEarningsSummary";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
@@ -19,9 +18,8 @@ import { useSteppedConnectionProgress } from "@/lib/useSteppedConnectionProgress
 import {
   formatCurrency,
   centsToDollars,
-  formatCountdownParts,
 } from "@/lib/mockData";
-import { GlassCard, SectionTitle, FadeIn, Badge } from "@/components/ui/Primitives";
+import { GlassCard, SectionTitle, FadeIn } from "@/components/ui/Primitives";
 import NodeTierBadge from "@/components/ui/NodeTierBadge";
 import FluctuatingEarnings from "@/components/ui/FluctuatingEarnings";
 import AnimatedNumber from "@/components/ui/AnimatedNumber";
@@ -29,8 +27,6 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   TrendingUp,
-  Clock,
-  Wallet,
   Sparkles,
   Info,
   Wifi,
@@ -511,7 +507,6 @@ export default function DashboardPage() {
   const { summary, loading, refetch } = useEarningsSummary(15000);
   const now = useLiveClock(100);
   const hasMounted = useHasMounted();
-  const router = useRouter();
 
   const [nodes, setNodes] = useState([]);
   const [nodesLoading, setNodesLoading] = useState(true);
@@ -564,20 +559,6 @@ export default function DashboardPage() {
   const week = centsToDollars((summary?.weekEarningsCents || 0) + interpolatedTodayCents);
   const month = centsToDollars((summary?.monthEarningsCents || 0) + interpolatedTodayCents);
   const lifetime = centsToDollars(lifetimeCents);
-
-  // payoutMs depends on Date.now() (`now`) -- gate it behind hasMounted so
-  // the server render and first client render both fall into the existing
-  // `payoutMs == null` branch (which already renders "--"), and the real
-  // countdown appears immediately after mount and ticks normally.
-  //
-  // Computed inline (not useMemo) -- the React Compiler auto-memoizes this
-  // and its own dependency inference disagreed with an explicit dep array
-  // that includes hasMounted/now.
-  let payoutMs = null;
-  if (hasMounted && summary?.payoutTargetAt) {
-    payoutMs = Math.max(0, new Date(summary.payoutTargetAt).getTime() - now);
-  }
-  const payoutParts = payoutMs != null ? formatCountdownParts(payoutMs) : null;
 
   const series = useMemo(
     () =>
@@ -716,56 +697,6 @@ export default function DashboardPage() {
 
           {/* Your Nodes */}
           <YourNodesSection nodes={nodes} loading={nodesLoading} />
-
-          {/* Next payout */}
-          <FadeIn delay={0.3}>
-            <GlassCard className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <div className="rounded-xl bg-[#32B5FF]/15 p-2.5">
-                  <Clock className="h-5 w-5 text-[#32B5FF]" />
-                </div>
-                <div>
-                  <div className="text-sm font-semibold text-white">Next Payout</div>
-                  <div className="text-xs text-[#B0B0B0]">
-                    Payouts run on a 4 month cycle from your Bridge connection
-                    date.
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 sm:justify-end sm:gap-4">
-                <div className="flex items-center gap-2">
-                  {summary?.payoutAvailable ? (
-                    <Badge tone="success">Payout Available</Badge>
-                  ) : (
-                    <>
-                      <Wallet className="h-4 w-4 text-[#32B5FF]" />
-                      {payoutParts ? (
-                        <span className="font-mono text-sm font-bold text-white">
-                          {payoutParts.months}mo {payoutParts.days}d {String(payoutParts.hours).padStart(2, "0")}h{" "}
-                          {String(payoutParts.minutes).padStart(2, "0")}m {String(payoutParts.seconds).padStart(2, "0")}s
-                        </span>
-                      ) : (
-                        <span className="font-mono text-sm font-bold text-white">--</span>
-                      )}
-                      <span className="text-xs text-[#B0B0B0]">remaining</span>
-                    </>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  disabled={!summary?.payoutAvailable}
-                  onClick={() => router.push("/withdrawals")}
-                  className={`rounded-xl px-4 py-2 text-xs font-semibold transition ${
-                    summary?.payoutAvailable
-                      ? "bg-[#32B5FF] text-[#06121a] shadow-[0_0_20px_rgba(50,181,255,0.35)] hover:bg-[#4dc0ff]"
-                      : "cursor-not-allowed bg-white/5 text-white/30"
-                  }`}
-                >
-                  Withdrawal
-                </button>
-              </div>
-            </GlassCard>
-          </FadeIn>
         </>
       )}
     </div>

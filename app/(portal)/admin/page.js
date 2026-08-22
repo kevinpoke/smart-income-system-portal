@@ -8,6 +8,7 @@ import { formatCurrency, centsToDollars, formatCountdown } from "@/lib/mockData"
 import { GlassCard, Badge, AccentButton, GhostButton } from "@/components/ui/Primitives";
 import NodeTierBadge from "@/components/ui/NodeTierBadge";
 import LocationCell from "@/components/admin/LocationCell";
+import UpsellCell from "@/components/admin/UpsellCell";
 import { EditNodePopup, AddNodePopup } from "@/components/admin/NodeModals";
 import {
   Lock,
@@ -748,9 +749,7 @@ function AccountRow({
       </td>
       <td className="px-4 py-3">
         {account.role === "customer" ? (
-          <Badge tone={account.upsellCompleted ? "accent" : "default"}>
-            {account.upsellCompleted ? "Yes" : "No"}
-          </Badge>
+          <UpsellCell account={account} onSaved={onChanged} />
         ) : (
           <span className="text-xs text-[#707070]">—</span>
         )}

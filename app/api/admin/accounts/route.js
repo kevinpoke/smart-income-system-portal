@@ -49,27 +49,15 @@ const SQL_SORT_COLUMNS = {
   state: "isp_state",
 };
 
-// User Management redesign: "Upsell" column. There is no dedicated
-// upsell-purchase field anywhere in the real (SQLite) accounts schema --
-// the only existing "upsell" concept in this codebase is
-// lib/store.js's demo-only Zustand `upsellsPurchased` counter, which is
-// client-side mock state for the OLD, now-unused simulated dashboard and
-// is never read by any real account/admin route. Per spec ("use the
-// existing canonical upsell-related account field if one already
-// exists... do not invent duplicate storage"), the closest genuine
-// server-persisted signal is completion of Training Module 3, "How to
-// Earn More (Upsell)" (see lib/mockData.js MODULES_META id 3 and
-// lib/moduleEngine.js / the account_module_progress table) -- this
-// module's entire content IS the upsell pitch, and its completed_at
-// column already exists for exactly this purpose. Rather than adding a
-// new column that would duplicate information already derivable from
-// account_module_progress, the Upsell column here reads
-// account_module_progress.completed_at for module_key = 3 directly.
-// "Yes" = the customer has completed the upsell training module (has
-// engaged with the upsell pitch); "No" = not yet completed; non-customer
-// rows show "—" since modules/upsell status is not a meaningful concept
-// for admin accounts.
-const UPSELL_COMPLETED_SUBQUERY = `(SELECT completed_at FROM account_module_progress WHERE account_module_progress.account_id = accounts.id AND account_module_progress.module_key = 3)`;
+// User Management: "Upsell" column. Reads the dedicated, admin-only
+// manual upsell_purchased flag (see lib/db.js ACCOUNT_COLUMNS for why
+// this is a plain column rather than a subquery derived from module
+// completion -- Module 3 completion means "watched the upsell pitch,"
+// which is a DIFFERENT fact from "actually purchased the upsell,"
+// confirmed via explicit product clarification during the admin/module/
+// withdrawal/dashboard fix batch). Writes only ever happen through the
+// dedicated admin route POST /api/admin/accounts/[id]/upsell.
+const UPSELL_COLUMN = "upsell_purchased";
 
 const ACCOUNT_SELECT_COLUMNS = `id, email, name, first_name, last_name, must_change_password, role, account_status, created_at,
               last_login_at, waitlist_joined_at,
@@ -104,15 +92,31 @@ export async function GET(request) {
     Math.max(1, Number.parseInt(searchParams.get("pageSize"), 10) || DEFAULT_PAGE_SIZE)
   );
   const offset = (page - 1) * pageSize;
+  // ISP Approvals search+pagination: an optional server-side filter to a
+  // single isp_status value (e.g. "pending_review"), so the ISP Approvals
+  // tab can reuse this SAME authoritative accounts query/endpoint with
+  // its own search+pagination instead of fetching every account and
+  // filtering client-side. Every other existing caller of this route
+  // (User Management) simply never sets this param, so its behavior is
+  // completely unchanged.
+  const ispStatusFilter = (searchParams.get("ispStatus") || "").trim();
 
   const db = getDb();
 
   const clauses = [];
   const params = [];
   if (q) {
-    clauses.push(`(LOWER(name) LIKE ? OR LOWER(email) LIKE ?)`);
+    // Partial, case-insensitive match against name OR email OR account id
+    // -- id is included so an admin who has an exact account id (the only
+    // other identifying field this admin system exposes/supports, per
+    // spec) can also search by it directly.
+    clauses.push(`(LOWER(name) LIKE ? OR LOWER(email) LIKE ? OR LOWER(id) LIKE ?)`);
     const likeParam = `%${q.toLowerCase()}%`;
-    params.push(likeParam, likeParam);
+    params.push(likeParam, likeParam, likeParam);
+  }
+  if (ispStatusFilter) {
+    clauses.push(`isp_status = ?`);
+    params.push(ispStatusFilter);
   }
   const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
 
@@ -163,7 +167,7 @@ export async function GET(request) {
       const placeholders = pageIds.map(() => "?").join(",");
       const rows = db
         .prepare(
-          `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COMPLETED_SUBQUERY} as upsell_completed_at
+          `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased
            FROM accounts WHERE id IN (${placeholders})`
         )
         .all(...pageIds);
@@ -177,7 +181,7 @@ export async function GET(request) {
     // IS NOT NULL (1) in ascending order.
     accountRows = db
       .prepare(
-        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COMPLETED_SUBQUERY} as upsell_completed_at
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased
          FROM accounts ${where}
          ORDER BY (waitlist_joined_at IS NOT NULL) ${sortDir}, created_at DESC
          LIMIT ? OFFSET ?`
@@ -196,7 +200,7 @@ export async function GET(request) {
     // across SQLite versions.
     accountRows = db
       .prepare(
-        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COMPLETED_SUBQUERY} as upsell_completed_at
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased
          FROM accounts ${where}
          ORDER BY (primary_node_tier IS NULL) ASC, primary_node_tier ${sortDir}
          LIMIT ? OFFSET ?`
@@ -204,15 +208,14 @@ export async function GET(request) {
       .all(...params, pageSize, offset);
   } else if (sortByParam === "upsell") {
     // Same "No"/"Yes" boolean-sort pattern as "waitlist" above: only two
-    // possible values (module 3 completed_at is NULL or not), so
-    // ordering by `(upsell_completed_at IS NOT NULL)` directly via a
-    // correlated subquery in ORDER BY reproduces alphabetical No/Yes
-    // ordering without a second JS pass.
+    // possible values (upsell_purchased is 0 or 1), so ordering directly
+    // by the plain column reproduces alphabetical No/Yes ordering
+    // without a second JS pass.
     accountRows = db
       .prepare(
-        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COMPLETED_SUBQUERY} as upsell_completed_at
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased
          FROM accounts ${where}
-         ORDER BY (${UPSELL_COMPLETED_SUBQUERY} IS NOT NULL) ${sortDir}, created_at DESC
+         ORDER BY ${UPSELL_COLUMN} ${sortDir}, created_at DESC
          LIMIT ? OFFSET ?`
       )
       .all(...params, pageSize, offset);
@@ -228,7 +231,7 @@ export async function GET(request) {
     // sort column in this route).
     accountRows = db
       .prepare(
-        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COMPLETED_SUBQUERY} as upsell_completed_at
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased
          FROM accounts ${where}
          ORDER BY ${column} ${sortDir}
          LIMIT ? OFFSET ?`
@@ -305,7 +308,7 @@ export async function GET(request) {
           : a.current_balance_cents,
         lifetimeEarningsCents: a.lifetime_earnings_cents,
         modulesUnlocked: Boolean(a.modules_unlocked),
-        upsellCompleted: Boolean(a.upsell_completed_at),
+        upsellCompleted: Boolean(a.upsell_purchased),
         createdAt: a.created_at,
         lastLoginAt: a.last_login_at,
         waitlistJoined: Boolean(a.waitlist_joined_at),
