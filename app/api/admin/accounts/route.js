@@ -99,7 +99,16 @@ export async function GET(request) {
   // filtering client-side. Every other existing caller of this route
   // (User Management) simply never sets this param, so its behavior is
   // completely unchanged.
-  const ispStatusFilter = (searchParams.get("ispStatus") || "").trim();
+  // ISP Approvals + Admin ISP Confirmation batch: accepts either a single
+  // isp_status value (back-compat, e.g. "pending_review") or a
+  // comma-separated list (e.g. "pending_review,approved_awaiting_user")
+  // so the ISP Approvals tab can list BOTH "awaiting existing admin
+  // approval" and "admin-approved, awaiting final ISP Confirmation" rows
+  // in one query, still fully server-side filtered/paginated.
+  const ispStatusFilterRaw = (searchParams.get("ispStatus") || "").trim();
+  const ispStatusValues = ispStatusFilterRaw
+    ? ispStatusFilterRaw.split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
 
   const db = getDb();
 
@@ -114,9 +123,9 @@ export async function GET(request) {
     const likeParam = `%${q.toLowerCase()}%`;
     params.push(likeParam, likeParam, likeParam);
   }
-  if (ispStatusFilter) {
-    clauses.push(`isp_status = ?`);
-    params.push(ispStatusFilter);
+  if (ispStatusValues.length > 0) {
+    clauses.push(`isp_status IN (${ispStatusValues.map(() => "?").join(",")})`);
+    params.push(...ispStatusValues);
   }
   const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
 

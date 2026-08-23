@@ -12,7 +12,6 @@ import {
   MailOpen,
   X,
   Search,
-  BarChart3,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -40,195 +39,10 @@ function displayFullName({ firstName, lastName, name, email }) {
   return "Unknown";
 }
 
-function formatDurationMs(ms) {
-  if (ms == null || !Number.isFinite(ms) || ms < 0) return "—";
-  const totalSeconds = Math.round(ms / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
-}
-
-function StatCard({ label, value, sub, className = "" }) {
-  return (
-    <div className={clsx("rounded-xl border border-white/10 bg-white/[0.03] p-3.5", className)}>
-      <div className="text-[11px] font-medium uppercase tracking-wide text-[#707070]">{label}</div>
-      <div className="mt-1 text-2xl font-bold text-white">{value}</div>
-      {sub && <div className="mt-0.5 text-[11px] text-[#B0B0B0]">{sub}</div>}
-    </div>
-  );
-}
-
-const PERIOD_OPTIONS = [
-  { value: "today", label: "Today" },
-  { value: "yesterday", label: "Yesterday" },
-  { value: "last3", label: "Last 3 Days" },
-  { value: "lastweek", label: "Last Week" },
-  { value: "lastmonth", label: "Last Month" },
-  { value: "custom", label: "Custom" },
-];
-
-// Part 1: Analytics tab. Fetches ONE server-side aggregate payload from
-// /api/admin/support/analytics -- never fetches raw account/message rows
-// for client-side computation (per the spec's "ANALYTICS PERFORMANCE"
-// requirement).
-function AnalyticsTab() {
-  const [period, setPeriod] = useState("lastweek");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
-  const [data, setData] = useState(null);
-  const [status, setStatus] = useState("loading"); // loading | ready | error
-  const [error, setError] = useState("");
-
-  const load = useCallback(async () => {
-    setStatus((s) => (s === "ready" ? s : "loading"));
-    try {
-      const params = new URLSearchParams();
-      params.set("period", period);
-      if (period === "custom") {
-        if (customStart) params.set("start", customStart);
-        if (customEnd) params.set("end", customEnd);
-      }
-      const res = await fetch(`/api/admin/support/analytics?${params.toString()}`, {
-        cache: "no-store",
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setError(json.error || "Unable to load analytics.");
-        setStatus("error");
-        return;
-      }
-      setData(json);
-      setError("");
-      setStatus("ready");
-    } catch {
-      setError("Something went wrong loading analytics.");
-      setStatus("error");
-    }
-  }, [period, customStart, customEnd]);
-
-  useEffect(() => {
-    // fetch-on-mount / on-filter-change, same pattern as the rest of this page.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    load();
-  }, [load]);
-
-  const responseTimeText = useMemo(() => {
-    if (!data?.responseTime) return null;
-    if (data.responseTime.error) return data.responseTime.error;
-    if (data.responseTime.avgMs == null) return "No manually-answered conversations in this period yet.";
-    return `${formatDurationMs(data.responseTime.avgMs)} — Based on ${data.responseTime.count} ${
-      data.responseTime.count === 1 ? "reply" : "replies"
-    }`;
-  }, [data]);
-
-  return (
-    <GlassCard className="p-5">
-      <div className="mb-4 flex items-center gap-2">
-        <BarChart3 className="h-4 w-4 text-[#32B5FF]" />
-        <h3 className="text-sm font-semibold text-white">Support Analytics</h3>
-      </div>
-
-      {status === "error" && (
-        <div className="mb-4 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>
-      )}
-
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        <StatCard label="Total Members" value={data ? data.totalMembers : "—"} />
-        <StatCard
-          label="Logged In At Least Once"
-          value={data ? data.loggedInAtLeastOnce : "—"}
-          sub={data ? `${data.loggedInAtLeastOnce} / ${data.totalMembers} · ${data.loggedInPct}%` : undefined}
-        />
-        <StatCard
-          label="ISP Applications Submitted"
-          value={data ? data.ispSubmitted : "—"}
-          sub={
-            data
-              ? `${data.ispSubmitted} / ${data.loggedInAtLeastOnce} · ${data.ispSubmittedPct}%`
-              : undefined
-          }
-        />
-        <StatCard
-          label="ISP Approved / Activated"
-          value={data ? data.ispApprovedActivated : "—"}
-          sub={
-            data
-              ? `${data.ispApprovedActivated} / ${data.loggedInAtLeastOnce} · ${data.ispApprovedActivatedPct}%`
-              : undefined
-          }
-        />
-        <StatCard
-          label="Bridge Waitlist"
-          value={data ? data.bridgeWaitlist : "—"}
-          sub={
-            data
-              ? `${data.bridgeWaitlistPctOfTotal}% of Total · ${data.bridgeWaitlistPctOfLoggedIn}% of Logged-In`
-              : undefined
-          }
-        />
-        <StatCard label="Disabled Users" value={data ? data.disabledUsers : "—"} />
-        <StatCard label="Module Timer Removed" value={data ? data.moduleTimerRemoved : "—"} />
-        <StatCard label="Balance Increased" value={data ? data.balanceIncreased : "—"} />
-      </div>
-
-      <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-[#707070]">
-            Average Support Response Time
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {PERIOD_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => setPeriod(opt.value)}
-                className={clsx(
-                  "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
-                  period === opt.value
-                    ? "bg-[#32B5FF] text-[#06121a]"
-                    : "bg-white/5 text-[#B0B0B0] hover:bg-white/10"
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {period === "custom" && (
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <label className="text-[11px] text-[#B0B0B0]">
-              Start
-              <input
-                type="date"
-                value={customStart}
-                onChange={(e) => setCustomStart(e.target.value)}
-                className="ml-1.5 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
-              />
-            </label>
-            <label className="text-[11px] text-[#B0B0B0]">
-              End
-              <input
-                type="date"
-                value={customEnd}
-                onChange={(e) => setCustomEnd(e.target.value)}
-                className="ml-1.5 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
-              />
-            </label>
-            <button
-              onClick={load}
-              className="rounded-lg bg-[#32B5FF]/20 px-2.5 py-1 text-[11px] font-medium text-[#32B5FF] hover:bg-[#32B5FF]/30"
-            >
-              Apply
-            </button>
-          </div>
-        )}
-        <div className="text-xl font-bold text-white">{responseTimeText || "—"}</div>
-      </div>
-    </GlassCard>
-  );
-}
+// Analytics (formatDurationMs/StatCard/PERIOD_OPTIONS/AnalyticsTab) moved
+// out to components/admin/AnalyticsPanel.js and its own dedicated
+// /admin/analytics page -- per spec "Analytics must NOT be inside
+// Support Chats." No calculation logic changed, only its mount point.
 
 function TagManager({ tags, onCreateTag, onDeleteTag, creating, deletingTagId }) {
   const [newTag, setNewTag] = useState("");
@@ -301,13 +115,6 @@ function TagManager({ tags, onCreateTag, onDeleteTag, creating, deletingTagId })
 }
 
 export default function AdminChatsPage() {
-  // Part 1: 5th tab. "inbox" preserves all 4 existing inbox filter tabs'
-  // combined UI (All/Read/Unread + tag chips + Upsell live inside the
-  // inbox workspace itself, per the existing app convention where those
-  // were never separate top-level page tabs to begin with -- see the
-  // ORIGINAL 4-tab layout below). "analytics" is the new 5th tab.
-  const [activeTab, setActiveTab] = useState("inbox");
-
   const [conversations, setConversations] = useState([]);
   const [listStatus, setListStatus] = useState("loading"); // loading | ready | error
   const [filter, setFilter] = useState("all"); // all | read | unread | upsell
@@ -460,13 +267,11 @@ export default function AdminChatsPage() {
   // "no hard refresh should be required" and newest-activity sorting/
   // unread indicators/timestamps must be preserved (they already are,
   // since silentRefreshList re-fetches through the exact same
-  // listConversationsForAdmin() query the initial load uses). Only polls
-  // while the inbox tab is active.
+  // listConversationsForAdmin() query the initial load uses).
   useEffect(() => {
-    if (activeTab !== "inbox") return undefined;
     const id = setInterval(silentRefreshList, 4000);
     return () => clearInterval(id);
-  }, [silentRefreshList, activeTab]);
+  }, [silentRefreshList]);
 
   const loadDetail = useCallback(
     async (conversationId, { forceScrollBottom = false } = {}) => {
@@ -545,10 +350,9 @@ export default function AdminChatsPage() {
   }, [loadConversations]);
 
   useEffect(() => {
-    if (activeTab !== "inbox") return undefined;
     const id = setInterval(silentRefreshDetail, 4000);
     return () => clearInterval(id);
-  }, [silentRefreshDetail, activeTab]);
+  }, [silentRefreshDetail]);
 
   function selectConversation(id) {
     setSelectedId(id);
@@ -686,32 +490,16 @@ export default function AdminChatsPage() {
       className="flex min-h-0 flex-col gap-4"
       style={{ height: "calc(100vh - 230px)", minHeight: "560px" }}
     >
-      {/* TOP: Admin Support header/tabs (Part 7 layout requirement) */}
+      {/* TOP: Admin Support header (Analytics moved to its own
+          dedicated /admin/analytics page -- see spec "Analytics must NOT
+          be inside Support Chats"). */}
       <div className="flex flex-shrink-0 items-center gap-2 border-b border-white/10 pb-3">
-        {[
-          { id: "inbox", label: "Support Inbox" },
-          { id: "analytics", label: "Analytics" },
-        ].map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setActiveTab(t.id)}
-            className={clsx(
-              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-              activeTab === t.id
-                ? "bg-[#32B5FF]/15 text-[#32B5FF]"
-                : "text-[#B0B0B0] hover:bg-white/5 hover:text-white"
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
+        <span className="rounded-lg bg-[#32B5FF]/15 px-3 py-1.5 text-sm font-medium text-[#32B5FF]">
+          Support Inbox
+        </span>
       </div>
 
-      {activeTab === "analytics" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <AnalyticsTab />
-        </div>
-      ) : (
+      {
         // Part 7: high-volume support inbox layout. Fills the remaining
         // viewport height (min-h-0 + flex-1 on the parent, h-full on this
         // grid) with a two-pane workspace: LEFT = conversation list
@@ -1062,7 +850,7 @@ export default function AdminChatsPage() {
             )}
           </GlassCard>
         </div>
-      )}
+      }
     </div>
   );
 }

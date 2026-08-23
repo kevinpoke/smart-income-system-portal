@@ -5,7 +5,7 @@ import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
 import { formatCountdown } from "@/lib/mockData";
 import { GlassCard } from "@/components/ui/Primitives";
-import { CheckCircle2, ShieldCheck, Search, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { CheckCircle2, ShieldCheck, Search, X, ChevronLeft, ChevronRight, Zap } from "lucide-react";
 
 const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
 const PAGE_SIZE = 30;
@@ -46,6 +46,7 @@ export default function AdminIspApprovalsPage() {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [approvingId, setApprovingId] = useState(null);
+  const [confirmingId, setConfirmingId] = useState(null);
   const [error, setError] = useState("");
 
   const [searchInput, setSearchInput] = useState("");
@@ -58,7 +59,12 @@ export default function AdminIspApprovalsPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      params.set("ispStatus", "pending_review");
+      // Admin ISP Confirmation batch: list BOTH rows still awaiting the
+      // existing admin approval action AND rows the admin already
+      // approved that are now awaiting final ISP Confirmation, in one
+      // server-side query/page -- see GET /api/admin/accounts's
+      // comma-separated ispStatus support.
+      params.set("ispStatus", "pending_review,approved_awaiting_user");
       // Stable ordering (oldest-submitted-first) so rows don't jump
       // between pages unexpectedly as new submissions arrive between
       // fetches -- unchanged from the previous implementation's sort.
@@ -113,6 +119,29 @@ export default function AdminIspApprovalsPage() {
       setError("Something went wrong. Please try again.");
     } finally {
       setApprovingId(null);
+    }
+  }
+
+  // Admin ISP Confirmation: performs the customer's own final
+  // confirmation/activation step on their behalf via the admin-only
+  // POST /api/admin/isp/[id]/confirm route, which itself calls the same
+  // canonical lib/ispEngine.js#completeIspAuthorization() the customer's
+  // own confirmation uses -- see that route for the full contract.
+  async function handleConfirm(id) {
+    setError("");
+    setConfirmingId(id);
+    try {
+      const res = await fetch(`/api/admin/isp/${id}/confirm`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "ISP confirmation failed.");
+        return;
+      }
+      await loadAccounts();
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setConfirmingId(null);
     }
   }
 
@@ -182,7 +211,7 @@ export default function AdminIspApprovalsPage() {
                 <th className="px-4 py-3">Email</th>
                 <th className="px-4 py-3">Submitted</th>
                 <th className="px-4 py-3">Review Countdown</th>
-                <th className="px-4 py-3">Approve</th>
+                <th className="px-4 py-3">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -198,6 +227,7 @@ export default function AdminIspApprovalsPage() {
                     ? new Date(a.ispSubmittedAt).getTime() + THREE_DAYS_MS
                     : null;
                   const remaining = deadline != null ? Math.max(0, deadline - now) : null;
+                  const awaitingConfirmation = a.ispStatus === "approved_awaiting_user";
                   return (
                     <tr key={a.id} className="border-b border-white/5 text-[#B0B0B0]">
                       <td className="px-4 py-3 font-mono text-xs text-white">{a.email}</td>
@@ -208,14 +238,25 @@ export default function AdminIspApprovalsPage() {
                         {remaining != null ? formatCountdown(remaining) : "—"}
                       </td>
                       <td className="px-4 py-3">
-                        <button
-                          onClick={() => handleApprove(a.id)}
-                          disabled={approvingId === a.id}
-                          className="flex items-center gap-1 rounded-lg bg-green-500/15 px-2 py-1.5 text-xs font-semibold text-green-400 hover:bg-green-500/25 disabled:opacity-50"
-                        >
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          {approvingId === a.id ? "Approving…" : "Approve"}
-                        </button>
+                        {awaitingConfirmation ? (
+                          <button
+                            onClick={() => handleConfirm(a.id)}
+                            disabled={confirmingId === a.id}
+                            className="flex items-center gap-1 rounded-lg bg-[#32B5FF]/15 px-2 py-1.5 text-xs font-semibold text-[#32B5FF] hover:bg-[#32B5FF]/25 disabled:opacity-50"
+                          >
+                            <Zap className="h-3.5 w-3.5" />
+                            {confirmingId === a.id ? "Confirming…" : "ISP Confirmation"}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleApprove(a.id)}
+                            disabled={approvingId === a.id}
+                            className="flex items-center gap-1 rounded-lg bg-green-500/15 px-2 py-1.5 text-xs font-semibold text-green-400 hover:bg-green-500/25 disabled:opacity-50"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            {approvingId === a.id ? "Approving…" : "Approve"}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

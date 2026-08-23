@@ -238,8 +238,12 @@ function SetPasswordModal({ account, onClose, onSubmitted }) {
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1E1E1E] p-6"
       >
-        <h3 className="mb-1 text-base font-bold text-white">Set Password</h3>
-        <p className="mb-4 text-xs text-[#707070]">{account.email}</p>
+        <h3 className="mb-1 text-base font-bold text-white">Set/Reset Password</h3>
+        <p className="mb-4 text-xs text-[#707070]">
+          Assigns this customer a new password immediately. The customer&rsquo;s existing password
+          hash is never shown or made viewable -- this only lets you set a new one.
+        </p>
+        <p className="mb-4 text-xs font-mono text-[#707070]">{account.email}</p>
         <form onSubmit={handleSubmit} className="space-y-3">
           <label className="block">
             <span className="mb-1 block text-xs text-[#B0B0B0]">New Password</span>
@@ -812,13 +816,13 @@ function AccountRow({
               </button>
               <button
                 onClick={() => onOpenSetPassword(account)}
-                aria-label={`Set password for ${account.email}`}
-                title="Set Password"
-                className="group relative flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-[#B0B0B0] hover:bg-white/20 hover:text-white"
+                aria-label={`Set or reset password for ${account.email}`}
+                title="Set/Reset Password"
+                className="group relative flex h-8 w-8 items-center justify-center rounded-lg bg-purple-500/15 text-purple-300 hover:bg-purple-500/25 hover:text-purple-200"
               >
                 <KeyRound className="h-3.5 w-3.5" />
                 <span className="pointer-events-none absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-                  Set Password
+                  Set/Reset Password
                 </span>
               </button>
             </>
