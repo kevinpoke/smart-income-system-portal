@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { hashPassword, generateId } from "@/lib/auth-crypto";
 import { generateSecureTempPassword } from "@/lib/tempPassword";
 import { sendWelcomeEmail } from "@/lib/onboardingMailer";
+import { disableAccount } from "@/lib/accountDisable";
 import {
   JVZOO_FIELDS,
   JVZOO_TRANSACTION_TYPES,
@@ -415,18 +416,27 @@ function disableForOriginalSaleRefund({ db, account, transactionId, productId, d
   // lib/authz.js getAccountByToken()).
   const nextStatus = "disabled";
 
+  // DISABLED-FUNNEL-ANALYTICS batch: routed through the shared
+  // lib/accountDisable.js#disableAccount() helper (same one the manual
+  // admin disable route uses) instead of a bare
+  // `UPDATE accounts SET account_status = 'disabled'`, so this path
+  // persists the same disabled_at/disable_reason/disable_stage_snapshot
+  // bookkeeping the Disabled User Funnel analytics depend on.
+  // disableAccount() opens/commits its OWN transaction internally
+  // (`node:sqlite`'s DatabaseSync has no nested-transaction support), so
+  // it is called here BEFORE this function's own db.exec("BEGIN") below
+  // -- never inside it. If the ledger/audit insert that follows later
+  // fails and rolls back, the disable itself (already committed here)
+  // is NOT rolled back, but that's safe/correct: account_status is
+  // already idempotent and re-processing this same refund notification
+  // on retry will simply find `previousStatus === "disabled"` and skip
+  // straight to the (still-pending) ledger/audit insert.
+  if (previousStatus !== "disabled") {
+    disableAccount(db, account.id, { reason: "jvzoo_refund" });
+  }
+
   try {
     db.exec("BEGIN");
-    if (previousStatus !== "disabled") {
-      db.prepare(`UPDATE accounts SET account_status = 'disabled' WHERE id = ?`).run(account.id);
-      // Reuse the EXACT canonical disabled-account behavior manual admin
-      // disable uses (see app/api/admin/accounts/[id]/disable/route.js):
-      // revoke every existing session immediately. lib/authz.js
-      // getAccountByToken() is the same belt-and-suspenders backstop
-      // both paths share, so a stale session can never be honored
-      // either way.
-      db.prepare(`DELETE FROM sessions WHERE account_id = ?`).run(account.id);
-    }
     db.prepare(
       `INSERT INTO ledger_entries
          (id, account_id, event_type, base_amount_cents, multiplier, final_amount_cents, effective_date, created_at, source_reference, metadata_json)

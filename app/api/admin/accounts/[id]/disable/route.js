@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
 import { generateId } from "@/lib/auth-crypto";
+import { disableAccount, enableAccount } from "@/lib/accountDisable";
 
 // Disable or re-enable a customer account. Disabling immediately
 // invalidates all of that account's existing sessions (belt-and-suspenders
@@ -13,6 +14,15 @@ import { generateId } from "@/lib/auth-crypto";
 // server-side we still allow it if genuinely intended (an admin might
 // legitimately want to disable their own account), but we flag it in the
 // response so the client can require the extra confirmation step.
+//
+// DISABLED-FUNNEL-ANALYTICS batch: the actual disable/re-enable mutation
+// now goes through the shared lib/accountDisable.js helpers
+// (disableAccount/enableAccount) instead of a bare
+// `UPDATE accounts SET account_status = ...` here, so this path and the
+// JVZoo refund auto-disable path always persist the same
+// disabled_at/disable_reason/disable_stage_snapshot bookkeeping needed
+// for the Disabled User Funnel analytics -- see lib/accountDisable.js
+// for the full idempotency/re-enable-lifecycle rationale.
 export async function POST(request, { params }) {
   if (!isSameOrigin(request)) {
     return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
@@ -41,33 +51,28 @@ export async function POST(request, { params }) {
     return NextResponse.json({ error: "Account not found." }, { status: 404 });
   }
 
-  const nextStatus = body.disabled ? "disabled" : "active";
   const before = { account_status: target.account_status };
 
-  db.exec("BEGIN");
-  try {
-    db.prepare(`UPDATE accounts SET account_status = ? WHERE id = ?`).run(nextStatus, targetId);
-    if (body.disabled) {
-      // Invalidate every existing session for this account immediately.
-      db.prepare(`DELETE FROM sessions WHERE account_id = ?`).run(targetId);
-    }
-    db.prepare(
-      `INSERT INTO audit_log (id, admin_account_id, target_account_id, action, before_json, after_json, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      generateId("audit"),
-      guard.account.id,
-      targetId,
-      body.disabled ? "account_disable" : "account_enable",
-      JSON.stringify(before),
-      JSON.stringify({ account_status: nextStatus }),
-      new Date().toISOString()
-    );
-    db.exec("COMMIT");
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
+  if (body.disabled) {
+    disableAccount(db, targetId, { reason: "manual_admin" });
+  } else {
+    enableAccount(db, targetId);
   }
+
+  const nextStatus = body.disabled ? "disabled" : "active";
+
+  db.prepare(
+    `INSERT INTO audit_log (id, admin_account_id, target_account_id, action, before_json, after_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    generateId("audit"),
+    guard.account.id,
+    targetId,
+    body.disabled ? "account_disable" : "account_enable",
+    JSON.stringify(before),
+    JSON.stringify({ account_status: nextStatus }),
+    new Date().toISOString()
+  );
 
   const updated = db
     .prepare(`SELECT id, email, account_status FROM accounts WHERE id = ?`)

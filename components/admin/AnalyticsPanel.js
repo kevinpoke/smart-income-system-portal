@@ -36,6 +36,65 @@ function StatCard({ label, value, sub, className = "" }) {
   );
 }
 
+// ISP-APPROVAL-CONVERSION batch: renders one conversion "row" (All
+// Approvals / Manual Approval / Automatic 3-Day Approval / Unknown
+// Approval Source) from a single finalized bucket returned by
+// lib/supportAnalytics.js#computeIspApprovalConversion. Both required
+// conversion percentages (Customer Return Conversion, Total Go-Live
+// Conversion) are always shown side by side per spec.
+function ConversionBlock({ title, c, className = "" }) {
+  return (
+    <div className={className}>
+      <div className="mb-2 text-xs font-semibold text-white">{title}</div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Total Approved" value={c.approved} />
+        <StatCard
+          label="Customer Returned & Went Live"
+          value={c.customerReturnedWentLive.count}
+          sub={`${c.customerReturnedWentLive.pct}% of approved`}
+        />
+        <StatCard
+          label="Admin Completed ISP Confirmation"
+          value={c.adminCompletedWentLive.count}
+          sub={`${c.adminCompletedWentLive.pct}% of approved`}
+        />
+        <StatCard
+          label="Still Not Live"
+          value={c.stillNotLive.count}
+          sub={`${c.stillNotLive.pct}% of approved`}
+        />
+      </div>
+      {c.liveActivationSourceUnknown.count > 0 && (
+        <div className="mt-2">
+          <StatCard
+            label="Live, Activation Source Unknown (Historical)"
+            value={c.liveActivationSourceUnknown.count}
+            sub={`${c.liveActivationSourceUnknown.pct}% of approved -- not counted as customer or admin`}
+          />
+        </div>
+      )}
+      <div className="mt-2 grid grid-cols-2 gap-3">
+        <div className="rounded-xl border border-[#32B5FF]/20 bg-[#32B5FF]/[0.06] p-3.5">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+            Customer Return Conversion
+          </div>
+          <div className="mt-1 text-2xl font-bold text-[#32B5FF]">
+            {c.customerReturnConversionPct}%
+          </div>
+        </div>
+        <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3.5">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+            Total Go-Live Conversion
+          </div>
+          <div className="mt-1 text-2xl font-bold text-emerald-400">
+            {c.totalGoLiveConversionPct}%
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const PERIOD_OPTIONS = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
@@ -148,6 +207,103 @@ export default function AnalyticsPanel() {
         <StatCard label="Module Timer Removed" value={data ? data.moduleTimerRemoved : "—"} />
         <StatCard label="Balance Increased" value={data ? data.balanceIncreased : "—"} />
       </div>
+
+      {data?.disabledFunnel && (
+        <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-3 text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+            Disabled User Funnel
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <StatCard
+              label="Before Logging In"
+              value={data.disabledFunnel.stages.beforeLogin.count}
+              sub={`${data.disabledFunnel.stages.beforeLogin.pct}% of disabled`}
+            />
+            <StatCard
+              label="Before ISP Setup Application"
+              value={data.disabledFunnel.stages.beforeIspSetup.count}
+              sub={`${data.disabledFunnel.stages.beforeIspSetup.pct}% of disabled`}
+            />
+            <StatCard
+              label="During 3-Day ISP Verification"
+              value={data.disabledFunnel.stages.duringIspVerification.count}
+              sub={`${data.disabledFunnel.stages.duringIspVerification.pct}% of disabled`}
+            />
+            <StatCard
+              label="After ISP Approval"
+              value={data.disabledFunnel.stages.afterIspApproval.count}
+              sub={`${data.disabledFunnel.stages.afterIspApproval.pct}% of disabled`}
+            />
+            {data.disabledFunnel.stages.unknown.count > 0 && (
+              <StatCard
+                label="Unknown / Historical Data Unavailable"
+                value={data.disabledFunnel.stages.unknown.count}
+                sub={`${data.disabledFunnel.stages.unknown.pct}% of disabled`}
+              />
+            )}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-2">
+            <StatCard
+              label="Approved But Never Went Live"
+              value={data.disabledFunnel.stages.afterIspApproval.neverWentLive.count}
+              sub={`${data.disabledFunnel.stages.afterIspApproval.neverWentLive.pct}% of disabled`}
+              className="border-white/5 bg-white/[0.02]"
+            />
+            <StatCard
+              label="Went Live Before Disabled"
+              value={data.disabledFunnel.stages.afterIspApproval.wentLiveBeforeDisabled.count}
+              sub={`${data.disabledFunnel.stages.afterIspApproval.wentLiveBeforeDisabled.pct}% of disabled`}
+              className="border-white/5 bg-white/[0.02]"
+            />
+          </div>
+          <div className="mt-4 text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+            Disabled By Reason
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-3">
+            <StatCard
+              label="JVZoo Refund"
+              value={data.disabledFunnel.byReason.jvzooRefund.count}
+              sub={`${data.disabledFunnel.byReason.jvzooRefund.pct}%`}
+            />
+            <StatCard
+              label="Manual Admin"
+              value={data.disabledFunnel.byReason.manualAdmin.count}
+              sub={`${data.disabledFunnel.byReason.manualAdmin.pct}%`}
+            />
+            <StatCard
+              label="Other / Unknown"
+              value={data.disabledFunnel.byReason.unknown.count}
+              sub={`${data.disabledFunnel.byReason.unknown.pct}%`}
+            />
+          </div>
+        </div>
+      )}
+
+      {data?.ispApprovalConversion && (
+        <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-3 text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+            ISP Approval Conversion
+          </div>
+          <ConversionBlock title="All Approvals" c={data.ispApprovalConversion.all} />
+          <ConversionBlock
+            title="Manual Approval"
+            c={data.ispApprovalConversion.manual}
+            className="mt-4"
+          />
+          <ConversionBlock
+            title="Automatic 3-Day Approval"
+            c={data.ispApprovalConversion.automatic}
+            className="mt-4"
+          />
+          {data.ispApprovalConversion.unknownApprovalSource.approved > 0 && (
+            <ConversionBlock
+              title="Unknown Approval Source"
+              c={data.ispApprovalConversion.unknownApprovalSource}
+              className="mt-4"
+            />
+          )}
+        </div>
+      )}
 
       <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">

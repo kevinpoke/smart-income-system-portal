@@ -16,12 +16,15 @@ import { transitionIspToApproved } from "@/lib/ispEngine";
 // Audited: every admin ISP approval writes an audit_log row.
 //
 // Production feature/fix batch: the actual state transition (isp_status,
-// isp_approved_at, the new isp_unread flag, and the one-time
-// ISP_APPROVED_MESSAGE) now lives in the single shared
+// isp_approved_at, the new isp_unread flag, and the approval-source
+// stamp) now lives in the single shared
 // lib/ispEngine.js#transitionIspToApproved(), also used by the fully
 // automatic 3-day timeout (checkAndAutoApproveIsp) -- this route no
 // longer duplicates that UPDATE inline, so manual and automatic approval
-// can never drift out of sync with each other.
+// can never drift out of sync with each other. (The automated Support
+// Chat "your ISP is ready" message that transitionIspToApproved() used
+// to schedule here has since been removed -- see the
+// STOP-AUTOMATED-SUPPORT-MESSAGES batch in lib/ispEngine.js.)
 export async function POST(request, { params }) {
   if (!isSameOrigin(request)) {
     return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });

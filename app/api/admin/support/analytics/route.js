@@ -5,6 +5,8 @@ import {
   computeResponseTimeSamples,
   summarizeResponseTimes,
   resolvePeriodRange,
+  computeDisabledFunnel,
+  computeIspApprovalConversion,
 } from "@/lib/supportAnalytics";
 
 // Admin-only, server-side aggregate Analytics for the Support "Analytics"
@@ -147,6 +149,13 @@ export async function GET(request) {
     return Math.round((numerator / denominator) * 1000) / 10; // one decimal
   }
 
+  // ---- DISABLED-FUNNEL-ANALYTICS + ISP-APPROVAL-CONVERSION batch ----
+  // Both computed server-side via a single aggregate query each (see
+  // lib/supportAnalytics.js) -- never by shipping raw account rows to
+  // the browser.
+  const disabledFunnel = computeDisabledFunnel(db);
+  const ispApprovalConversion = computeIspApprovalConversion(db);
+
   return NextResponse.json({
     totalMembers,
     loggedInAtLeastOnce,
@@ -169,5 +178,7 @@ export async function GET(request) {
       rangeEndMs: range?.endMs ?? null,
       error: responseTime.error || null,
     },
+    disabledFunnel,
+    ispApprovalConversion,
   });
 }
