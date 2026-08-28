@@ -3,6 +3,8 @@ import { getDb } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { getPayoutTargetAt, computeEarningsSummary } from "@/lib/earningsEngine";
 import { displayNameToTierKey } from "@/lib/nodeTiers";
+import { computeModule10SupportStatus, MODULE_10_SUPPORT_STATUS } from "@/lib/moduleEngine";
+import { WITHDRAWALS_MODULE_10_GATE_ID } from "@/lib/mockData";
 
 // Lists real accounts created via the purchase webhook / login system
 // (separate from the client-side Zustand demo users on the main site).
@@ -60,7 +62,7 @@ const SQL_SORT_COLUMNS = {
 const UPSELL_COLUMN = "upsell_purchased";
 
 const ACCOUNT_SELECT_COLUMNS = `id, email, name, first_name, last_name, must_change_password, role, account_status, created_at,
-              last_login_at, waitlist_joined_at,
+              first_login_at, last_login_at, waitlist_joined_at,
               isp_status, isp_submitted_at, isp_approved_at, user_authorized_at, node_connected_at,
               isp_city, isp_state,
               current_balance_cents, lifetime_earnings_cents, modules_unlocked, wifi_enabled`;
@@ -75,6 +77,16 @@ const ACCOUNT_SELECT_COLUMNS = `id, email, name, first_name, last_name, must_cha
 // Node list into JS first.
 const PRIMARY_NODE_TIER_SUBQUERY = `(SELECT tier FROM owned_nodes WHERE owned_nodes.account_id = accounts.id AND owned_nodes.removed_at IS NULL ORDER BY node_number ASC LIMIT 1)`;
 const NODE_COUNT_SUBQUERY = `(SELECT COUNT(*) FROM owned_nodes WHERE owned_nodes.account_id = accounts.id AND owned_nodes.removed_at IS NULL)`;
+
+// MODULE-10-SUPPORT-STATUS batch: the real, persisted Module 10
+// completion timestamp, pulled via a single correlated subquery per row
+// (SQLite plans this as an indexed lookup against
+// account_module_progress's composite PK (account_id, module_key) --
+// see lib/db.js -- so this scales the same way PRIMARY_NODE_TIER_SUBQUERY
+// above already does, with NO N+1 per-row API calls). NULL means "never
+// completed" -- the same authoritative signal
+// lib/moduleEngine.js#isModuleCompleted() reads.
+const MODULE10_COMPLETED_AT_SUBQUERY = `(SELECT completed_at FROM account_module_progress WHERE account_module_progress.account_id = accounts.id AND account_module_progress.module_key = ${WITHDRAWALS_MODULE_10_GATE_ID})`;
 
 export async function GET(request) {
   const guard = await requireAdmin();
@@ -176,7 +188,7 @@ export async function GET(request) {
       const placeholders = pageIds.map(() => "?").join(",");
       const rows = db
         .prepare(
-          `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased
+          `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased, ${MODULE10_COMPLETED_AT_SUBQUERY} as module10_completed_at
            FROM accounts WHERE id IN (${placeholders})`
         )
         .all(...pageIds);
@@ -190,7 +202,7 @@ export async function GET(request) {
     // IS NOT NULL (1) in ascending order.
     accountRows = db
       .prepare(
-        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased, ${MODULE10_COMPLETED_AT_SUBQUERY} as module10_completed_at
          FROM accounts ${where}
          ORDER BY (waitlist_joined_at IS NOT NULL) ${sortDir}, created_at DESC
          LIMIT ? OFFSET ?`
@@ -209,7 +221,7 @@ export async function GET(request) {
     // across SQLite versions.
     accountRows = db
       .prepare(
-        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased, ${MODULE10_COMPLETED_AT_SUBQUERY} as module10_completed_at
          FROM accounts ${where}
          ORDER BY (primary_node_tier IS NULL) ASC, primary_node_tier ${sortDir}
          LIMIT ? OFFSET ?`
@@ -222,7 +234,7 @@ export async function GET(request) {
     // without a second JS pass.
     accountRows = db
       .prepare(
-        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased, ${MODULE10_COMPLETED_AT_SUBQUERY} as module10_completed_at
          FROM accounts ${where}
          ORDER BY ${UPSELL_COLUMN} ${sortDir}, created_at DESC
          LIMIT ? OFFSET ?`
@@ -240,7 +252,7 @@ export async function GET(request) {
     // sort column in this route).
     accountRows = db
       .prepare(
-        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased
+        `SELECT ${ACCOUNT_SELECT_COLUMNS}, ${PRIMARY_NODE_TIER_SUBQUERY} as primary_node_tier, ${NODE_COUNT_SUBQUERY} as node_count, ${UPSELL_COLUMN} as upsell_purchased, ${MODULE10_COMPLETED_AT_SUBQUERY} as module10_completed_at
          FROM accounts ${where}
          ORDER BY ${column} ${sortDir}
          LIMIT ? OFFSET ?`
@@ -323,6 +335,23 @@ export async function GET(request) {
         waitlistJoined: Boolean(a.waitlist_joined_at),
         payoutTargetAt,
         payoutAvailable,
+        // MODULE-10-SUPPORT-STATUS batch: server-side classified, one of
+        // "not_unlocked" | "unlocked" | "watched" -- see
+        // lib/moduleEngine.js#computeModule10SupportStatus for the exact
+        // priority rule (real completion always wins; Unlock All can
+        // produce "unlocked" but never "watched"). Computed here (not a
+        // second per-row API call) using the module10_completed_at value
+        // already fetched via MODULE10_COMPLETED_AT_SUBQUERY above -- no
+        // N+1 queries.
+        module10Status: computeModule10SupportStatus(
+          {
+            first_login_at: a.first_login_at,
+            created_at: a.created_at,
+            modules_unlocked: a.modules_unlocked,
+            module10CompletedAt: a.module10_completed_at,
+          },
+          WITHDRAWALS_MODULE_10_GATE_ID
+        ),
       };
     }),
     recentEmails: outbox,

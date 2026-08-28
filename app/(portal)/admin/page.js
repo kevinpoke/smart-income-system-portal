@@ -543,6 +543,22 @@ function WithdrawCell({ account, now }) {
   return <span className="font-mono text-xs text-white">{formatCountdown(remaining)}</span>;
 }
 
+// MODULE-10-SUPPORT-STATUS batch: compact badge for the new "Mod 10"
+// User Management column. Renders exactly one of the three required
+// visible strings (per spec Part 12) from the server-classified
+// account.module10Status ("not_unlocked" | "unlocked" | "watched" --
+// see lib/moduleEngine.js#computeModule10SupportStatus). Never
+// recomputes the status client-side.
+function Module10StatusBadge({ status }) {
+  if (status === "watched") {
+    return <Badge tone="success">Watched</Badge>;
+  }
+  if (status === "unlocked") {
+    return <Badge tone="accent">Unlocked</Badge>;
+  }
+  return <Badge tone="default">Not Unlocked</Badge>;
+}
+
 function AccountRow({
   account,
   currentAdminId,
@@ -745,6 +761,13 @@ function AccountRow({
       <td className="px-4 py-3 text-xs">{formatLastLogin(account.lastLoginAt)}</td>
       <td className="px-4 py-3">
         <WithdrawCell account={account} now={now} />
+      </td>
+      <td className="px-4 py-3">
+        {account.role === "customer" ? (
+          <Module10StatusBadge status={account.module10Status} />
+        ) : (
+          <span className="text-xs text-[#707070]">—</span>
+        )}
       </td>
       <td className="px-4 py-3">
         <Badge tone={account.waitlistJoined ? "accent" : "default"}>
@@ -1207,6 +1230,7 @@ export default function AdminUsersPage() {
                     defaultDir="asc"
                   />
                 </th>
+                <th className="px-4 py-3">Mod 10</th>
                 <th className="px-4 py-3">
                   <SortableHeader
                     column="waitlist"

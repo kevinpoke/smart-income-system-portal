@@ -7,6 +7,7 @@ import {
   resolvePeriodRange,
   computeDisabledFunnel,
   computeIspApprovalConversion,
+  computeModule10RefundAnalytics,
 } from "@/lib/supportAnalytics";
 
 // Admin-only, server-side aggregate Analytics for the Support "Analytics"
@@ -156,6 +157,13 @@ export async function GET(request) {
   const disabledFunnel = computeDisabledFunnel(db);
   const ispApprovalConversion = computeIspApprovalConversion(db);
 
+  // ---- MODULE-10-REFUND-ANALYTICS batch ----
+  // See lib/supportAnalytics.js#computeModule10RefundAnalytics for the
+  // full authoritative-definitions audit (refund source, unlock
+  // schedule, real completion signal). Single server-side aggregate
+  // pass -- never ships raw account rows to the browser.
+  const module10Refunds = computeModule10RefundAnalytics(db);
+
   return NextResponse.json({
     totalMembers,
     loggedInAtLeastOnce,
@@ -180,5 +188,6 @@ export async function GET(request) {
     },
     disabledFunnel,
     ispApprovalConversion,
+    module10Refunds,
   });
 }

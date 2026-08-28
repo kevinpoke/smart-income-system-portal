@@ -305,6 +305,58 @@ export default function AnalyticsPanel() {
         </div>
       )}
 
+      {data?.module10Refunds && (
+        <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-3 text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+            Module 10 Refunds
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <StatCard label="Total JVZoo Refunds" value={data.module10Refunds.totalRefunds} />
+            <StatCard
+              label="Refunded After Mod 10 Unlocked"
+              value={data.module10Refunds.unlockedBeforeRefund}
+              sub={`${data.module10Refunds.unlockedBeforeRefundPct}% of refunds`}
+            />
+            <StatCard
+              label="Refunded After Mod 10 Watched"
+              value={data.module10Refunds.watchedBeforeRefund}
+              sub={`${data.module10Refunds.watchedBeforeRefundPct}% of refunds`}
+            />
+          </div>
+          {(data.module10Refunds.refundRateAmongUnlocked != null ||
+            data.module10Refunds.refundRateAmongWatched != null) && (
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              {data.module10Refunds.refundRateAmongUnlocked != null && (
+                <div className="rounded-xl border border-[#32B5FF]/20 bg-[#32B5FF]/[0.06] p-3.5">
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+                    Refund Rate After Mod 10 Unlock
+                  </div>
+                  <div className="mt-1 text-2xl font-bold text-[#32B5FF]">
+                    {data.module10Refunds.refundRateAmongUnlocked}%
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-[#B0B0B0]">
+                    {data.module10Refunds.unlockedBeforeRefund} / {data.module10Refunds.everUnlockedCount} ever unlocked
+                  </div>
+                </div>
+              )}
+              {data.module10Refunds.refundRateAmongWatched != null && (
+                <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3.5">
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+                    Refund Rate After Watching Mod 10
+                  </div>
+                  <div className="mt-1 text-2xl font-bold text-emerald-400">
+                    {data.module10Refunds.refundRateAmongWatched}%
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-[#B0B0B0]">
+                    {data.module10Refunds.watchedBeforeRefund} / {data.module10Refunds.everWatchedCount} ever watched
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="text-[11px] font-medium uppercase tracking-wide text-[#707070]">
