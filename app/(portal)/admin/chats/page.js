@@ -13,8 +13,12 @@ import {
   X,
   Search,
   Image as ImageIcon,
+  Pencil,
+  Trash2,
+  Check,
 } from "lucide-react";
 import clsx from "clsx";
+import LinkifiedText from "@/components/support/LinkifiedText";
 
 function formatTime(iso) {
   if (!iso) return "";
@@ -180,6 +184,20 @@ export default function AdminChatsPage() {
   const fileInputRef = useRef(null);
 
   const [contextMenu, setContextMenu] = useState(null); // { id, x, y }
+
+  // ISP support controls + special bridges batch: admin edit/delete for
+  // individual Support messages (spec sections 6-9). `messageMenuId` is
+  // the currently-open compact "..." per-message menu (Edit/Delete);
+  // `editingMessageId` + `editingDraft` drive the inline edit textarea
+  // for whichever message is being edited; `savingEditId`/`deletingId`
+  // are per-message in-flight indicators so a double-click can't fire
+  // two overlapping requests for the SAME message.
+  const [messageMenuId, setMessageMenuId] = useState(null);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editingDraft, setEditingDraft] = useState("");
+  const [savingEditId, setSavingEditId] = useState(null);
+  const [deletingMessageId, setDeletingMessageId] = useState(null);
+  const [messageActionError, setMessageActionError] = useState("");
 
   // Additional-requirements batch: preserve the LEFT conversation list's
   // scroll position across any conversations-list refresh (send a
@@ -550,6 +568,90 @@ export default function AdminChatsPage() {
     }
   }
 
+  // ISP support controls + special bridges batch: opens the inline edit
+  // UI for one specific message, seeded with its CURRENT body (preserving
+  // multiline formatting exactly -- the textarea's value is the raw
+  // stored body, not a collapsed/joined version).
+  function startEditingMessage(message) {
+    setMessageMenuId(null);
+    setMessageActionError("");
+    setEditingMessageId(message.id);
+    setEditingDraft(message.body || "");
+  }
+
+  function cancelEditingMessage() {
+    setEditingMessageId(null);
+    setEditingDraft("");
+  }
+
+  // Saves an in-progress message edit via the admin-only PATCH route.
+  // Does NOT force-scroll or reset the LEFT list's scroll position (it
+  // only refreshes the currently-open thread + the list's preview text,
+  // both of which already go through the SAME
+  // capturePreservedScroll()/useLayoutEffect restoration path every
+  // other list refresh in this file uses -- see loadConversations()).
+  async function handleSaveEdit(messageId) {
+    if (savingEditId) return;
+    setSavingEditId(messageId);
+    setMessageActionError("");
+    try {
+      const res = await fetch(
+        `/api/admin/support/conversations/${selectedId}/messages/${messageId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: editingDraft }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setMessageActionError(data.error || "Unable to save edit.");
+        return;
+      }
+      setEditingMessageId(null);
+      setEditingDraft("");
+      await loadDetail(selectedId);
+      await loadConversations();
+    } catch {
+      setMessageActionError("Something went wrong. Please try again.");
+    } finally {
+      setSavingEditId(null);
+    }
+  }
+
+  // Deletes a message after an explicit confirmation step (spec section
+  // 9: "Delete should require a confirmation step so an accidental click
+  // does not immediately remove a customer message"). Soft-deletes
+  // server-side; disappears from both admin and customer views the
+  // instant this commits (see lib/supportEngine.js#deleteMessage /
+  // getMessages()'s deleted_at IS NULL filter).
+  async function handleDeleteMessage(message) {
+    setMessageMenuId(null);
+    const confirmed = window.confirm(
+      "Delete this message? This cannot be undone and the message will disappear for both you and the customer."
+    );
+    if (!confirmed) return;
+    setDeletingMessageId(message.id);
+    setMessageActionError("");
+    try {
+      const res = await fetch(
+        `/api/admin/support/conversations/${selectedId}/messages/${message.id}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setMessageActionError(data.error || "Unable to delete message.");
+        return;
+      }
+      await loadDetail(selectedId);
+      await loadConversations();
+    } catch {
+      setMessageActionError("Something went wrong. Please try again.");
+    } finally {
+      setDeletingMessageId(null);
+    }
+  }
+
   async function handleSend() {
     const text = draft.trim();
     // Per spec Part 15: an image-only reply is sendable; a message with
@@ -650,7 +752,10 @@ export default function AdminChatsPage() {
         // pinned at the bottom).
         <div
           className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[300px_1fr]"
-          onClick={() => contextMenu && setContextMenu(null)}
+          onClick={() => {
+            if (contextMenu) setContextMenu(null);
+            if (messageMenuId) setMessageMenuId(null);
+          }}
         >
           <GlassCard className="flex min-h-0 flex-col overflow-hidden">
             <div className="flex-shrink-0 border-b border-white/10 px-3 py-2.5">
@@ -943,13 +1048,60 @@ export default function AdminChatsPage() {
                         ? m.senderFirstName || "Ashley"
                         : m.senderFirstName || "Customer";
                       const photoUrl = m.senderPhotoUrl;
+                      const isEditingThis = editingMessageId === m.id;
+                      const isMenuOpenForThis = messageMenuId === m.id;
                       return (
                         <div
                           key={m.id}
-                          className={`flex items-end gap-2 ${isAdmin ? "justify-end" : "justify-start"}`}
+                          className={`group flex items-end gap-2 ${isAdmin ? "justify-end" : "justify-start"}`}
                         >
                           {!isAdmin && (
                             <Avatar photoUrl={photoUrl} firstName={displayName} size={24} />
+                          )}
+                          {/* ISP support controls + special bridges batch:
+                              a compact "..." menu (admin-only, this page
+                              is never rendered for a customer session)
+                              offering Edit/Delete for ANY message
+                              (admin-origin or customer-origin) -- kept
+                              small/hover-revealed rather than a
+                              permanent large button per spec section 9. */}
+                          {!isAdmin && !isEditingThis && (
+                            <div
+                              className="relative self-center opacity-0 transition-opacity group-hover:opacity-100"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setMessageMenuId((prev) => (prev === m.id ? null : m.id))
+                                }
+                                aria-label="Message actions"
+                                title="Message actions"
+                                className="rounded p-1 text-[#707070] hover:bg-white/10 hover:text-white"
+                              >
+                                <MoreVertical className="h-3.5 w-3.5" />
+                              </button>
+                              {isMenuOpenForThis && (
+                                <div className="absolute left-0 z-20 mt-1 w-32 rounded-lg border border-white/10 bg-[#1E1E1E] py-1 shadow-2xl">
+                                  <button
+                                    type="button"
+                                    onClick={() => startEditingMessage(m)}
+                                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-white hover:bg-white/10"
+                                  >
+                                    <Pencil className="h-3 w-3" /> Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteMessage(m)}
+                                    disabled={deletingMessageId === m.id}
+                                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                    {deletingMessageId === m.id ? "Deleting…" : "Delete"}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           )}
                           <div
                             className={`max-w-[70%] rounded-2xl px-3.5 py-2 text-sm ${
@@ -963,18 +1115,95 @@ export default function AdminChatsPage() {
                             >
                               {displayName}
                             </div>
-                            {m.body && (
-                              <div className="whitespace-pre-wrap break-words">{m.body}</div>
+                            {isEditingThis ? (
+                              <div className="min-w-[220px] space-y-1.5">
+                                <textarea
+                                  value={editingDraft}
+                                  onChange={(e) => setEditingDraft(e.target.value)}
+                                  rows={3}
+                                  autoFocus
+                                  className="w-full resize-y rounded-lg border border-white/10 bg-black/20 px-2 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-[#06121a]/40"
+                                />
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={cancelEditingMessage}
+                                    disabled={savingEditId === m.id}
+                                    className="flex items-center gap-1 rounded-lg bg-black/10 px-2 py-1 text-[10px] font-semibold text-[#06121a]/80 hover:bg-black/20 disabled:opacity-50"
+                                  >
+                                    <X className="h-3 w-3" /> Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveEdit(m.id)}
+                                    disabled={savingEditId === m.id}
+                                    className="flex items-center gap-1 rounded-lg bg-black/70 px-2 py-1 text-[10px] font-semibold text-white hover:bg-black/80 disabled:opacity-50"
+                                  >
+                                    <Check className="h-3 w-3" />
+                                    {savingEditId === m.id ? "Saving…" : "Save"}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                {m.body && (
+                                  <div className="whitespace-pre-wrap break-words">
+                                    <LinkifiedText text={m.body} />
+                                  </div>
+                                )}
+                                <AdminMessageAttachmentImage attachment={m.attachment} />
+                                <div
+                                  className={`mt-1 flex items-center gap-1 text-[10px] ${
+                                    isAdmin ? "text-[#06121a]/60" : "text-[#B0B0B0]"
+                                  }`}
+                                >
+                                  {formatTime(m.createdAt)}
+                                  {/* Additive, admin-only "edited" hint --
+                                      never removes/replaces created_at,
+                                      per spec section 12. */}
+                                  {m.editedAt && <span className="italic">(edited)</span>}
+                                </div>
+                              </>
                             )}
-                            <AdminMessageAttachmentImage attachment={m.attachment} />
-                            <div
-                              className={`mt-1 text-[10px] ${
-                                isAdmin ? "text-[#06121a]/60" : "text-[#B0B0B0]"
-                              }`}
-                            >
-                              {formatTime(m.createdAt)}
-                            </div>
                           </div>
+                          {isAdmin && !isEditingThis && (
+                            <div
+                              className="relative self-center opacity-0 transition-opacity group-hover:opacity-100"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setMessageMenuId((prev) => (prev === m.id ? null : m.id))
+                                }
+                                aria-label="Message actions"
+                                title="Message actions"
+                                className="rounded p-1 text-[#707070] hover:bg-white/10 hover:text-white"
+                              >
+                                <MoreVertical className="h-3.5 w-3.5" />
+                              </button>
+                              {isMenuOpenForThis && (
+                                <div className="absolute right-0 z-20 mt-1 w-32 rounded-lg border border-white/10 bg-[#1E1E1E] py-1 shadow-2xl">
+                                  <button
+                                    type="button"
+                                    onClick={() => startEditingMessage(m)}
+                                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-white hover:bg-white/10"
+                                  >
+                                    <Pencil className="h-3 w-3" /> Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteMessage(m)}
+                                    disabled={deletingMessageId === m.id}
+                                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                    {deletingMessageId === m.id ? "Deleting…" : "Delete"}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
                           {isAdmin && <Avatar photoUrl={photoUrl} firstName={displayName} size={24} />}
                         </div>
                       );
@@ -984,6 +1213,11 @@ export default function AdminChatsPage() {
                 {sendError && (
                   <div className="flex-shrink-0 border-t border-white/10 px-4 py-2 text-xs text-red-400">
                     {sendError}
+                  </div>
+                )}
+                {messageActionError && (
+                  <div className="flex-shrink-0 border-t border-white/10 px-4 py-2 text-xs text-red-400">
+                    {messageActionError}
                   </div>
                 )}
 

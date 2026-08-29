@@ -35,7 +35,7 @@ export async function GET(request, { params }) {
        FROM support_message_attachments att
        JOIN support_messages m ON m.id = att.message_id
        JOIN conversations c ON c.id = m.conversation_id
-       WHERE att.id = ?`
+       WHERE att.id = ? AND m.deleted_at IS NULL`
     )
     .get(attachmentId);
 

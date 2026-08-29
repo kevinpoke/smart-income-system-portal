@@ -3,11 +3,21 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
-import { formatCountdown } from "@/lib/mockData";
+import { formatCountdown, ISP_AUTO_APPROVE_AFTER_MS } from "@/lib/mockData";
+import {
+  ISP_ACTION,
+  computeIspAction,
+  ispActionFilterToIspStatusParam,
+  ISP_ACTION_FILTER_OPTIONS,
+} from "@/lib/ispActionState";
 import { GlassCard } from "@/components/ui/Primitives";
 import { CheckCircle2, ShieldCheck, Search, X, ChevronLeft, ChevronRight, Zap } from "lucide-react";
 
-const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+// ISP support controls + special bridges batch: matches
+// lib/ispEngine.js AUTO_APPROVE_AFTER_MS (now 1 hour, was 3 days) --
+// imported from lib/mockData.js (see that file's comment) so this
+// admin-facing countdown can never disagree with the server's real
+// deadline.
 const PAGE_SIZE = 30;
 // Debounce delay for the search input, matching the existing User
 // Management search box pattern in app/(portal)/admin/page.js.
@@ -51,6 +61,13 @@ export default function AdminIspApprovalsPage() {
 
   const [searchInput, setSearchInput] = useState("");
   const searchTerm = useDebouncedValue(searchInput, SEARCH_DEBOUNCE_MS);
+  // Admin-portal batch: Action filter ("all" | "approve" |
+  // "isp_confirmation") -- reuses the EXISTING server-side `ispStatus`
+  // query param this route already supports (see
+  // lib/ispActionState.js#ispActionFilterToIspStatusParam), so this is
+  // genuinely server-side filtering, not a client-side slice of an
+  // already-fetched page.
+  const [actionFilter, setActionFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -63,8 +80,14 @@ export default function AdminIspApprovalsPage() {
       // existing admin approval action AND rows the admin already
       // approved that are now awaiting final ISP Confirmation, in one
       // server-side query/page -- see GET /api/admin/accounts's
-      // comma-separated ispStatus support.
-      params.set("ispStatus", "pending_review,approved_awaiting_user");
+      // comma-separated ispStatus support. Admin-portal batch: the
+      // Action filter narrows this SAME param to a single isp_status
+      // value instead of the full pair -- see
+      // lib/ispActionState.js#ispActionFilterToIspStatusParam, the ONE
+      // place this mapping lives (shared with the Action column's own
+      // label logic below via computeIspAction()) so filter and column
+      // can never disagree.
+      params.set("ispStatus", ispActionFilterToIspStatusParam(actionFilter));
       // Stable ordering (oldest-submitted-first) so rows don't jump
       // between pages unexpectedly as new submissions arrive between
       // fetches -- unchanged from the previous implementation's sort.
@@ -86,7 +109,7 @@ export default function AdminIspApprovalsPage() {
     } finally {
       setLoading(false);
     }
-  }, [searchTerm, page]);
+  }, [searchTerm, actionFilter, page]);
 
   useEffect(() => {
     // fetch-on-mount + whenever search/page changes, same pattern as
@@ -103,6 +126,15 @@ export default function AdminIspApprovalsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(1);
   }, [searchTerm]);
+
+  // Same reset rule for the Action filter -- switching filters must not
+  // leave the user stranded on a page number that no longer exists for
+  // the newly (possibly much smaller) filtered set. Search term is
+  // preserved across a filter change (both persist independently).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPage(1);
+  }, [actionFilter]);
 
   async function handleApprove(id) {
     setError("");
@@ -169,8 +201,8 @@ export default function AdminIspApprovalsPage() {
           the identifying fields the Admin Portal already exposes/
           supports), case-insensitive partial match, works across every
           ISP approval record server-side (not just the current page). */}
-      <div className="border-b border-white/10 px-5 py-3">
-        <div className="relative max-w-sm">
+      <div className="flex flex-wrap items-center gap-3 border-b border-white/10 px-5 py-3">
+        <div className="relative max-w-sm flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]" />
           <input
             value={searchInput}
@@ -189,6 +221,29 @@ export default function AdminIspApprovalsPage() {
               <X className="h-3.5 w-3.5" />
             </button>
           )}
+        </div>
+        {/* Admin-portal batch: Action filter -- All / Approve / ISP
+            Confirmation. Purely a read filter: changing it only affects
+            which rows are FETCHED (via the ispStatus query param), it
+            never calls the approve/confirm routes or otherwise mutates
+            any account's isp_status. */}
+        <div className="flex items-center gap-1.5">
+          <label htmlFor="isp-action-filter" className="text-xs font-medium text-[#B0B0B0]">
+            Action
+          </label>
+          <select
+            id="isp-action-filter"
+            value={actionFilter}
+            onChange={(e) => setActionFilter(e.target.value)}
+            aria-label="Filter by Action"
+            className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
+          >
+            {ISP_ACTION_FILTER_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -224,10 +279,17 @@ export default function AdminIspApprovalsPage() {
               ) : (
                 accounts.map((a) => {
                   const deadline = a.ispSubmittedAt
-                    ? new Date(a.ispSubmittedAt).getTime() + THREE_DAYS_MS
+                    ? new Date(a.ispSubmittedAt).getTime() + ISP_AUTO_APPROVE_AFTER_MS
                     : null;
                   const remaining = deadline != null ? Math.max(0, deadline - now) : null;
-                  const awaitingConfirmation = a.ispStatus === "approved_awaiting_user";
+                  // Admin-portal batch: the Action COLUMN now derives its
+                  // button/label from the SAME computeIspAction() helper
+                  // the Action FILTER uses (lib/ispActionState.js) --
+                  // this is the "reuse the exact state logic" requirement
+                  // from spec section C, guaranteeing filter and column
+                  // can never disagree about what a given row's Action is.
+                  const action = computeIspAction(a.ispStatus);
+                  const awaitingConfirmation = action === ISP_ACTION.ISP_CONFIRMATION;
                   return (
                     <tr key={a.id} className="border-b border-white/5 text-[#B0B0B0]">
                       <td className="px-4 py-3 font-mono text-xs text-white">{a.email}</td>

@@ -6,7 +6,7 @@ import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
 import { notifyAccountChanged } from "@/lib/accountEvents";
 import { useSteppedConnectionProgress } from "@/lib/useSteppedConnectionProgress";
-import { ISP_PROVIDERS, US_STATES, formatCountdown } from "@/lib/mockData";
+import { ISP_PROVIDERS, US_STATES, formatCountdown, ISP_AUTO_APPROVE_AFTER_MS } from "@/lib/mockData";
 import {
   GlassCard,
   SectionTitle,
@@ -16,7 +16,16 @@ import {
 } from "@/components/ui/Primitives";
 import { CheckCircle2, Clock3, Wifi, ShieldCheck } from "lucide-react";
 
-const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+// ISP support controls + special bridges batch: this page's own
+// countdown/copy must always reflect the SAME authoritative deadline the
+// server actually enforces (lib/ispEngine.js AUTO_APPROVE_AFTER_MS, now
+// 1 hour -- was 3 days). Imported from lib/mockData.js (a plain,
+// browser-safe module) rather than lib/ispEngine.js directly -- this is
+// a "use client" page, and lib/ispEngine.js pulls in lib/auth-crypto.js
+// (node:crypto) via its other exports, which is not something a client
+// bundle should import. lib/mockData.js#ISP_AUTO_APPROVE_AFTER_MS is the
+// exact same value lib/ispEngine.js re-exports as AUTO_APPROVE_AFTER_MS
+// for server callers, so this can never drift out of sync.
 const CONNECTION_DURATION_MS = 20000; // exactly 20 seconds, per spec -- must match lib/ispEngine.js
 
 function Field({ label, children }) {
@@ -214,12 +223,16 @@ export default function IspSetupPage() {
     setAuthorizeError(message);
   }
 
-  // Timer begins exactly 3 days after isp_submitted_at (server timestamp).
-  // Reaching zero never auto-approves -- it only affects the copy shown
-  // while isp_status stays "pending_review" until an admin acts.
+  // Timer begins exactly 1 hour after isp_submitted_at (server
+  // timestamp) -- matches lib/ispEngine.js AUTO_APPROVE_AFTER_MS.
+  // Reaching zero never auto-approves the CLIENT side by itself -- it
+  // only affects the copy shown; the actual transition is performed
+  // server-side (lib/ispEngine.js#checkAndAutoApproveIsp), evaluated
+  // lazily on the next request (e.g. the next /api/auth/me refetch)
+  // once real wall-clock time has genuinely passed the deadline.
   let reviewTimeRemaining = null;
   if (hasMounted && user?.ispSubmittedAt) {
-    const deadline = new Date(user.ispSubmittedAt).getTime() + THREE_DAYS_MS;
+    const deadline = new Date(user.ispSubmittedAt).getTime() + ISP_AUTO_APPROVE_AFTER_MS;
     reviewTimeRemaining = Math.max(0, deadline - now);
   }
 
@@ -333,7 +346,7 @@ export default function IspSetupPage() {
                 optimize your earning potential.
               </p>
               <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-[#B0B0B0]">
-                Your setup may be completed sooner than 3 business days.
+                Your setup may be completed sooner than 1 hour.
                 Once your Bridge is ready, check back to activate your
                 Smart Income System.
               </p>
@@ -344,7 +357,7 @@ export default function IspSetupPage() {
               </Badge>
             )}
             <p className="max-w-md px-2 text-xs leading-relaxed text-[#707070]">
-              If your setup is not complete within 3 business days, contact
+              If your setup is not complete within 1 hour, contact
               Support for assistance.
             </p>
           </GlassCard>

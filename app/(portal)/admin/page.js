@@ -9,6 +9,7 @@ import { GlassCard, Badge, AccentButton, GhostButton } from "@/components/ui/Pri
 import NodeTierBadge from "@/components/ui/NodeTierBadge";
 import LocationCell from "@/components/admin/LocationCell";
 import UpsellCell from "@/components/admin/UpsellCell";
+import WaitlistCell from "@/components/admin/WaitlistCell";
 import { EditNodePopup, AddNodePopup } from "@/components/admin/NodeModals";
 import {
   Lock,
@@ -770,9 +771,13 @@ function AccountRow({
         )}
       </td>
       <td className="px-4 py-3">
-        <Badge tone={account.waitlistJoined ? "accent" : "default"}>
-          {account.waitlistJoined ? "Yes" : "No"}
-        </Badge>
+        {account.role === "customer" ? (
+          <WaitlistCell account={account} onSaved={onChanged} />
+        ) : (
+          <Badge tone={account.waitlistJoined ? "accent" : "default"}>
+            {account.waitlistJoined ? "Yes" : "No"}
+          </Badge>
+        )}
       </td>
       <td className="px-4 py-3">
         {account.role === "customer" ? (
@@ -929,6 +934,15 @@ export default function AdminUsersPage() {
   // as the old default filter-free view.
   const [sortBy, setSortBy] = useState("joined");
   const [sortDir, setSortDir] = useState("desc");
+  // Admin-portal batch: Mod 10 filter ("all" | "not_unlocked" |
+  // "unlocked" | "watched") -- the ONE exception to the "sorting only"
+  // redesign above, added per explicit new spec requirement. Server-side
+  // via the existing /api/admin/accounts endpoint's new `mod10Status`
+  // param (see that route for the shared SQL classification, mirroring
+  // lib/moduleEngine.js#computeModule10SupportStatus exactly), so this
+  // coexists with search/sort/pagination without any client-side
+  // N+1 lookups.
+  const [mod10Filter, setMod10Filter] = useState("all");
   const [page, setPage] = useState(1);
   const pageSize = 30;
   const [total, setTotal] = useState(0);
@@ -975,6 +989,7 @@ export default function AdminUsersPage() {
       if (searchTerm.trim()) params.set("q", searchTerm.trim());
       params.set("sortBy", sortBy);
       params.set("sortDir", sortDir);
+      if (mod10Filter !== "all") params.set("mod10Status", mod10Filter);
       params.set("page", String(page));
       params.set("pageSize", String(pageSize));
 
@@ -998,7 +1013,7 @@ export default function AdminUsersPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial
     loadAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm, sortBy, sortDir, page]);
+  }, [searchTerm, sortBy, sortDir, mod10Filter, page]);
 
   // Admin User Management hourly Balance refresh: re-fetches the SAME
   // current page (via loadAccounts, reading current searchTerm/sortBy/
@@ -1020,18 +1035,19 @@ export default function AdminUsersPage() {
       loadAccounts();
     }, 60 * 60 * 1000); // 60 minutes
     return () => clearInterval(intervalId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadAccounts closes over current searchTerm/sortBy/sortDir/page/pageSize; recreating the interval on every keystroke/sort/page change is unnecessary since it always reads fresh values from the current effect run's closure, but we DO want the timer's target params to stay current, so include the same deps as the fetch-on-change effect above.
-  }, [searchTerm, sortBy, sortDir, page]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadAccounts closes over current searchTerm/sortBy/sortDir/mod10Filter/page/pageSize; recreating the interval on every keystroke/sort/page/filter change is unnecessary since it always reads fresh values from the current effect run's closure, but we DO want the timer's target params to stay current, so include the same deps as the fetch-on-change effect above.
+  }, [searchTerm, sortBy, sortDir, mod10Filter, page]);
 
-  // Reset to page 1 whenever search/sort changes (a stale page number
-  // from a previous, larger result set could otherwise land past the
-  // end of a new, smaller/differently-ordered set). Search PERSISTS
-  // across this reset and across sort changes -- only the page number
-  // resets (per spec: "reset to page 1... preserve global search").
+  // Reset to page 1 whenever search/sort/Mod10-filter changes (a stale
+  // page number from a previous, larger result set could otherwise land
+  // past the end of a new, smaller/differently-ordered/filtered set).
+  // Search PERSISTS across this reset and across sort/filter changes --
+  // only the page number resets (per spec: "reset to page 1... preserve
+  // global search").
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(1);
-  }, [searchTerm, sortBy, sortDir]);
+  }, [searchTerm, sortBy, sortDir, mod10Filter]);
 
   // Clear selection whenever the underlying filtered/sorted/paginated
   // result set changes -- selection must always refer to currently
@@ -1039,7 +1055,7 @@ export default function AdminUsersPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedIds(new Set());
-  }, [searchTerm, sortBy, sortDir, page]);
+  }, [searchTerm, sortBy, sortDir, mod10Filter, page]);
 
   const customerRows = useMemo(() => accounts.filter((a) => a.role === "customer"), [accounts]);
   const adminRows = useMemo(() => accounts.filter((a) => a.role !== "customer"), [accounts]);
@@ -1117,6 +1133,22 @@ export default function AdminUsersPage() {
                 </button>
               )}
             </div>
+            {/* Admin-portal batch: Mod 10 filter, compact so the table
+                header row remains uncluttered (per spec "table remains
+                compact"). Coexists with search/sort/pagination -- server
+                side, via /api/admin/accounts's mod10Status param. */}
+            <select
+              value={mod10Filter}
+              onChange={(e) => setMod10Filter(e.target.value)}
+              aria-label="Filter by Mod 10 status"
+              title="Filter by Mod 10 status"
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
+            >
+              <option value="all">Mod 10: All</option>
+              <option value="not_unlocked">Mod 10: Not Unlocked</option>
+              <option value="unlocked">Mod 10: Unlocked</option>
+              <option value="watched">Mod 10: Watched</option>
+            </select>
             <AccentButton onClick={() => setShowCreateModal(true)}>
               <UserPlus className="h-4 w-4" /> Create User
             </AccentButton>

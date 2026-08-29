@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/session";
 import { getPayoutTargetAt, computeEarningsSummary } from "@/lib/earningsEngine";
 import { displayNameToTierKey } from "@/lib/nodeTiers";
 import { computeModule10SupportStatus, MODULE_10_SUPPORT_STATUS } from "@/lib/moduleEngine";
-import { WITHDRAWALS_MODULE_10_GATE_ID } from "@/lib/mockData";
+import { WITHDRAWALS_MODULE_10_GATE_ID, MODULE_UNLOCK_HOURS } from "@/lib/mockData";
 
 // Lists real accounts created via the purchase webhook / login system
 // (separate from the client-side Zustand demo users on the main site).
@@ -88,6 +88,33 @@ const NODE_COUNT_SUBQUERY = `(SELECT COUNT(*) FROM owned_nodes WHERE owned_nodes
 // lib/moduleEngine.js#isModuleCompleted() reads.
 const MODULE10_COMPLETED_AT_SUBQUERY = `(SELECT completed_at FROM account_module_progress WHERE account_module_progress.account_id = accounts.id AND account_module_progress.module_key = ${WITHDRAWALS_MODULE_10_GATE_ID})`;
 
+// Admin-portal batch (Mod 10 filter): the EXACT SAME classification rule
+// as lib/moduleEngine.js#computeModule10SupportStatus(), expressed as a
+// server-side SQL boolean expression so filtering by Mod 10 status never
+// requires fetching every account into JS first (no N+1, no client-side
+// full-table scan) -- this reuses the SAME two inputs that function
+// reads (module10_completed_at, modules_unlocked, first_login_at) and
+// the SAME fixed schedule constant (MODULE_UNLOCK_HOURS[10] hours after
+// first_login_at), just written as SQL date-arithmetic instead of JS
+// millisecond math. `datetime(first_login_at, '+112 hours')` and
+// `computeModuleUnlockAtMs()`'s `firstLoginMs + hours * HOUR_MS` are
+// mathematically identical for a fixed hour count -- SQLite's datetime()
+// modifier arithmetic and JS Date millisecond arithmetic agree exactly
+// for a whole-hour offset applied to the same ISO instant. This constant
+// is interpolated from the SAME MODULE_UNLOCK_HOURS[10] config value the
+// JS classifier reads -- never a second, independently-hardcoded "112".
+const MODULE_10_UNLOCK_HOURS = MODULE_UNLOCK_HOURS[WITHDRAWALS_MODULE_10_GATE_ID];
+// Mirrors computeModuleUnlockAtMs()'s exact condition for a >0h module:
+// "first_login_at is set AND first_login_at + hours has already passed."
+// isp_status is deliberately NOT part of this expression -- the JS
+// classifier never reads it either.
+const MODULE10_UNLOCKED_NOW_SQL = `(modules_unlocked = 1 OR (first_login_at IS NOT NULL AND datetime(first_login_at, '+${MODULE_10_UNLOCK_HOURS} hours') <= datetime('now')))`;
+const MODULE10_STATUS_SQL_CLAUSES = {
+  watched: `${MODULE10_COMPLETED_AT_SUBQUERY} IS NOT NULL`,
+  unlocked: `${MODULE10_COMPLETED_AT_SUBQUERY} IS NULL AND ${MODULE10_UNLOCKED_NOW_SQL}`,
+  not_unlocked: `${MODULE10_COMPLETED_AT_SUBQUERY} IS NULL AND NOT ${MODULE10_UNLOCKED_NOW_SQL}`,
+};
+
 export async function GET(request) {
   const guard = await requireAdmin();
   if (!guard.account) {
@@ -122,6 +149,16 @@ export async function GET(request) {
     ? ispStatusFilterRaw.split(",").map((s) => s.trim()).filter(Boolean)
     : [];
 
+  // Admin-portal batch: optional Mod 10 status filter for the User
+  // Management table ("all" | "not_unlocked" | "unlocked" | "watched").
+  // Validated against the exact same MODULE_10_SUPPORT_STATUS constants
+  // the classifier itself uses -- an unrecognized/missing value is
+  // treated as "no filter" (same as omitting the param entirely).
+  const mod10StatusFilterRaw = (searchParams.get("mod10Status") || "").trim().toLowerCase();
+  const mod10StatusFilter = Object.values(MODULE_10_SUPPORT_STATUS).includes(mod10StatusFilterRaw)
+    ? mod10StatusFilterRaw
+    : null;
+
   const db = getDb();
 
   const clauses = [];
@@ -138,6 +175,14 @@ export async function GET(request) {
   if (ispStatusValues.length > 0) {
     clauses.push(`isp_status IN (${ispStatusValues.map(() => "?").join(",")})`);
     params.push(...ispStatusValues);
+  }
+  if (mod10StatusFilter) {
+    // Mod 10 is a customer-only concept (admin/staff rows always show
+    // "—" client-side) -- scoping the filter to role='customer' here
+    // means selecting a Mod 10 filter can never accidentally include or
+    // exclude a non-customer row based on this classification, which
+    // would be meaningless for them.
+    clauses.push(`role = 'customer' AND (${MODULE10_STATUS_SQL_CLAUSES[mod10StatusFilter]})`);
   }
   const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
 

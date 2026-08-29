@@ -19,7 +19,7 @@ import {
   formatCurrency,
   centsToDollars,
 } from "@/lib/mockData";
-import { GlassCard, SectionTitle, FadeIn } from "@/components/ui/Primitives";
+import { GlassCard, SectionTitle, FadeIn, Badge } from "@/components/ui/Primitives";
 import NodeTierBadge from "@/components/ui/NodeTierBadge";
 import FluctuatingEarnings from "@/components/ui/FluctuatingEarnings";
 import AnimatedNumber from "@/components/ui/AnimatedNumber";
@@ -464,7 +464,20 @@ function YourNodesSection({ nodes, loading }) {
                       #{node.displayNodeId || node.nodeId}
                     </td>
                     <td className="px-4 py-3">
-                      <NodeTierBadge tierKey={node.tierKey} tier={node.tier} />
+                      {/* ISP support controls + special bridges batch: one
+                          of the four EXACT special Bridges shows its OWN
+                          catalog display name ("Golden Bridge"/"IX
+                          Bridge") -- never the internal "XI Bridge" label
+                          nova would otherwise render -- per spec section
+                          22 ("do not show internal DB keys like XI if
+                          customer-facing requirement is IX"). */}
+                      {node.isSpecialBridge ? (
+                        <Badge tone={node.specialBridgeDisplayName === "Golden Bridge" ? "warning" : "accent"}>
+                          {node.specialBridgeDisplayName}
+                        </Badge>
+                      ) : (
+                        <NodeTierBadge tierKey={node.tierKey} tier={node.tier} />
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs">{node.location || "—"}</td>
                     <td className="px-4 py-3 text-right font-mono text-xs text-[#B0B0B0]">

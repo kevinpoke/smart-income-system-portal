@@ -65,6 +65,7 @@ export async function GET(request, { params }) {
       senderRole: m.sender_role,
       body: m.body,
       createdAt: m.created_at,
+      editedAt: m.edited_at,
       readAt: m.read_at,
       senderFirstName: m.senderFirstName,
       senderPhotoUrl: m.senderPhotoUrl,

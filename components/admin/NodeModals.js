@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { GhostButton, AccentButton } from "@/components/ui/Primitives";
+import { GhostButton, AccentButton, Badge } from "@/components/ui/Primitives";
 import NodeTierBadge from "@/components/ui/NodeTierBadge";
 import { NODE_TIERS, TIER_KEYS, tierKeyToBridgeDisplayName } from "@/lib/nodeTiers";
 import { formatCurrency, centsToDollars } from "@/lib/mockData";
@@ -159,41 +159,73 @@ export function EditNodePopup({ account, onClose, onChanged }) {
                         {node.isPrimary ? " · Primary" : ""}
                       </div>
                     </div>
-                    <NodeTierBadge tierKey={node.tierKey} tier={node.tier} />
+                    {/* ISP support controls + special bridges batch: one of
+                        the four EXACT special Bridges always shows its OWN
+                        catalog display name ("Golden Bridge"/"IX Bridge"),
+                        never the generic internal tier badge -- see
+                        lib/specialBridges.js for why "IX" (not "XI") is
+                        required here specifically. */}
+                    {node.isSpecialBridge ? (
+                      <Badge tone="accent" className="text-xs">
+                        {node.specialBridgeDisplayName}
+                      </Badge>
+                    ) : (
+                      <NodeTierBadge tierKey={node.tierKey} tier={node.tier} />
+                    )}
                   </div>
                   <div className="mb-2 text-[10px] text-[#707070]">
                     Current rate: {formatCurrency(centsToDollars(node.earningRateCents))}/mo
                   </div>
                   <div className="flex items-center gap-2">
-                    <select
-                      value={pendingTier}
-                      onChange={(e) =>
-                        setPendingTiers((prev) => ({ ...prev, [node.id]: e.target.value }))
-                      }
-                      aria-label={`Tier for Bridge ${node.displayNodeId}`}
-                      disabled={removingNodeId === node.id}
-                      className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF] disabled:opacity-50"
-                    >
-                      {TIER_KEYS.map((key) => (
-                        <option key={key} value={key}>
-                          {tierKeyToBridgeDisplayName(key)}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => handleSave(node)}
-                      disabled={!changed || savingNodeId === node.id || removingNodeId === node.id}
-                      className="rounded-lg bg-[#32B5FF]/20 px-3 py-1.5 text-xs font-semibold text-[#32B5FF] disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {savingNodeId === node.id ? "Saving…" : "Save"}
-                    </button>
+                    {/* Special Bridges have a FIXED catalog identity (exact
+                        Bridge ID/type per spec) -- their tier is never
+                        admin-editable via this generic tier <select>, only
+                        removable via the same mechanism every other Bridge
+                        uses (spec section 17). */}
+                    {node.isSpecialBridge ? (
+                      <div className="flex-1 rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-1.5 text-[11px] text-[#707070]">
+                        Special Bridge — tier is fixed
+                      </div>
+                    ) : (
+                      <>
+                        <select
+                          value={pendingTier}
+                          onChange={(e) =>
+                            setPendingTiers((prev) => ({ ...prev, [node.id]: e.target.value }))
+                          }
+                          aria-label={`Tier for Bridge ${node.displayNodeId}`}
+                          disabled={removingNodeId === node.id}
+                          className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF] disabled:opacity-50"
+                        >
+                          {TIER_KEYS.map((key) => (
+                            <option key={key} value={key}>
+                              {tierKeyToBridgeDisplayName(key)}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => handleSave(node)}
+                          disabled={!changed || savingNodeId === node.id || removingNodeId === node.id}
+                          className="rounded-lg bg-[#32B5FF]/20 px-3 py-1.5 text-xs font-semibold text-[#32B5FF] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {savingNodeId === node.id ? "Saving…" : "Save"}
+                        </button>
+                      </>
+                    )}
                     {/* Bridge removal (User Management -> Remove Bridge):
                         admin-only, requires confirmation (see
                         handleRemove above), shows a pending state, and
                         is disabled while a save is also in flight for
                         this same row so the two actions can never race
-                        against each other. */}
+                        against each other. Works identically for
+                        special Bridges -- same mechanism, per spec
+                        section 17 ("do not create a second independent
+                        removal system") -- removal frees the exact
+                        Bridge ID for reassignment (see
+                        lib/ownedNodes.js#removeOwnedNode /
+                        assignSpecialBridge's active-only uniqueness
+                        check). */}
                     <button
                       type="button"
                       onClick={() => handleRemove(node)}
@@ -225,15 +257,20 @@ export function EditNodePopup({ account, onClose, onChanged }) {
   );
 }
 
-// Add Bridge popup: tier selection + Confirm. Generates a fresh
-// requestKey the moment the popup mounts (i.e. once per genuinely NEW
-// popup open -- the ref is created fresh every time this component is
-// mounted, since the parent only renders it when `addNodeModalAccount`
+// Add Bridge popup: tier selection + Confirm, PLUS (ISP support controls
+// + special bridges batch) an admin-only "Special Bridge" mode that lets
+// the admin assign one of the four EXACT catalog Bridges (Golden
+// #284373, IX #841837/#952341/#934211 -- see lib/specialBridges.js)
+// instead of the normal random-rate Standard/Golden/XI roll. Generates a
+// fresh requestKey the moment the popup mounts (i.e. once per genuinely
+// NEW popup open -- the ref is created fresh every time this component
+// is mounted, since the parent only renders it when `addNodeModalAccount`
 // is set) so a double-click retry of the SAME submission reuses the
 // SAME requestKey and is caught by the server's node_add_requests
 // idempotency table, while opening a brand new popup (even for the same
 // account) always gets a fresh key.
 export function AddNodePopup({ account, onClose, onAdded }) {
+  const [mode, setMode] = useState("standard"); // "standard" | "special"
   const [tierKey, setTierKey] = useState("standard");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -245,6 +282,48 @@ export function AddNodePopup({ account, onClose, onAdded }) {
     return requestKeyRef.current;
   }
 
+  // Special Bridges tab state: the four-item catalog + live assignment
+  // status, fetched from the admin-only GET /api/admin/accounts/[id]/
+  // special-bridge route (which itself does not depend on `account` --
+  // it reflects GLOBAL assignment status across every customer -- but is
+  // scoped under this account's popup for a consistent admin UX).
+  const [specialBridges, setSpecialBridges] = useState([]);
+  const [specialLoading, setSpecialLoading] = useState(true);
+  const [selectedBridgeId, setSelectedBridgeId] = useState(null);
+
+  async function loadSpecialBridges() {
+    setSpecialLoading(true);
+    try {
+      const res = await fetch(`/api/admin/accounts/${account.id}/special-bridge`, {
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSpecialBridges(data.bridges || []);
+        // Default-select the first still-available bridge, if any.
+        const firstAvailable = (data.bridges || []).find((b) => !b.assignedToAccountId);
+        setSelectedBridgeId(firstAvailable?.id ?? null);
+      }
+    } catch {
+      // non-fatal; the Special Bridge tab just shows an empty/error state
+    } finally {
+      setSpecialLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (mode === "special" && specialBridges.length === 0) {
+      // fetch-on-first-open-of-tab, same pattern as every other
+      // fetch-on-mount effect in this codebase (see lib/useAccount.js) --
+      // loadSpecialBridges() itself calls setState, but only inside an
+      // async callback after the fetch resolves, never synchronously
+      // within this effect body.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      loadSpecialBridges();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
   async function handleConfirm() {
     if (submitting) return; // client-side guard against a double-click while a request
     // is already in flight; the SERVER's node_add_requests UNIQUE
@@ -254,11 +333,24 @@ export function AddNodePopup({ account, onClose, onAdded }) {
     setSubmitting(true);
     setError("");
     try {
-      const res = await fetch(`/api/admin/accounts/${account.id}/nodes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tier: tierKey, requestKey: getRequestKey() }),
-      });
+      let res;
+      if (mode === "special") {
+        if (!selectedBridgeId) {
+          setError("Select a special Bridge to assign.");
+          return;
+        }
+        res = await fetch(`/api/admin/accounts/${account.id}/special-bridge`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bridgeId: selectedBridgeId }),
+        });
+      } else {
+        res = await fetch(`/api/admin/accounts/${account.id}/nodes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tier: tierKey, requestKey: getRequestKey() }),
+        });
+      }
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Unable to add Bridge.");
@@ -284,37 +376,110 @@ export function AddNodePopup({ account, onClose, onAdded }) {
         <h3 className="mb-1 text-base font-bold text-white">Add Bridge</h3>
         <p className="mb-4 text-xs text-[#707070]">{account.email}</p>
 
-        <div className="space-y-2">
-          {TIER_KEYS.map((key) => {
-            const tier = NODE_TIERS[key];
-            const selected = tierKey === key;
-            return (
-              <label
-                key={key}
-                className={`flex cursor-pointer items-center justify-between rounded-xl border px-3.5 py-2.5 text-sm transition ${
-                  selected
-                    ? "border-[#32B5FF]/60 bg-[#32B5FF]/10"
-                    : "border-white/10 bg-white/5 hover:bg-white/[0.07]"
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="add-node-tier"
-                    value={key}
-                    checked={selected}
-                    onChange={() => setTierKey(key)}
-                    className="h-3.5 w-3.5 accent-[#32B5FF]"
-                  />
-                  <NodeTierBadge tierKey={key} tier={tierKeyToBridgeDisplayName(key)} />
-                </span>
-                <span className="font-mono text-xs text-[#B0B0B0]">
-                  {formatCurrency(tier.minCents / 100)}–{formatCurrency(tier.maxCents / 100)}/mo
-                </span>
-              </label>
-            );
-          })}
+        <div className="mb-4 flex gap-1.5 rounded-xl bg-white/5 p-1">
+          <button
+            type="button"
+            onClick={() => setMode("standard")}
+            disabled={submitting}
+            className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+              mode === "standard" ? "bg-[#32B5FF] text-[#06121a]" : "text-[#B0B0B0] hover:text-white"
+            }`}
+          >
+            Standard
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("special")}
+            disabled={submitting}
+            className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+              mode === "special" ? "bg-[#32B5FF] text-[#06121a]" : "text-[#B0B0B0] hover:text-white"
+            }`}
+          >
+            Special Bridge
+          </button>
         </div>
+
+        {mode === "standard" && (
+          <div className="space-y-2">
+            {TIER_KEYS.map((key) => {
+              const tier = NODE_TIERS[key];
+              const selected = tierKey === key;
+              return (
+                <label
+                  key={key}
+                  className={`flex cursor-pointer items-center justify-between rounded-xl border px-3.5 py-2.5 text-sm transition ${
+                    selected
+                      ? "border-[#32B5FF]/60 bg-[#32B5FF]/10"
+                      : "border-white/10 bg-white/5 hover:bg-white/[0.07]"
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="add-node-tier"
+                      value={key}
+                      checked={selected}
+                      onChange={() => setTierKey(key)}
+                      className="h-3.5 w-3.5 accent-[#32B5FF]"
+                    />
+                    <NodeTierBadge tierKey={key} tier={tierKeyToBridgeDisplayName(key)} />
+                  </span>
+                  <span className="font-mono text-xs text-[#B0B0B0]">
+                    {formatCurrency(tier.minCents / 100)}–{formatCurrency(tier.maxCents / 100)}/mo
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        {mode === "special" && (
+          <div className="space-y-2">
+            {specialLoading ? (
+              <div className="py-4 text-center text-xs text-[#707070]">Loading special Bridges…</div>
+            ) : (
+              specialBridges.map((b) => {
+                const selected = selectedBridgeId === b.id;
+                const taken = Boolean(b.assignedToAccountId);
+                return (
+                  <label
+                    key={b.id}
+                    className={`flex cursor-pointer items-center justify-between rounded-xl border px-3.5 py-2.5 text-sm transition ${
+                      taken
+                        ? "cursor-not-allowed border-white/5 bg-white/[0.02] opacity-50"
+                        : selected
+                          ? "border-[#32B5FF]/60 bg-[#32B5FF]/10"
+                          : "border-white/10 bg-white/5 hover:bg-white/[0.07]"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="add-special-bridge"
+                        value={b.id}
+                        checked={selected}
+                        disabled={taken}
+                        onChange={() => setSelectedBridgeId(b.id)}
+                        className="h-3.5 w-3.5 accent-[#32B5FF]"
+                      />
+                      <span className="text-xs font-semibold text-white">
+                        {b.displayName} #{b.id}
+                      </span>
+                      {taken && (
+                        <Badge tone="default" className="px-1.5 py-0 text-[9px]">
+                          Assigned{b.assignedToAccountEmail ? ` · ${b.assignedToAccountEmail}` : ""}
+                        </Badge>
+                      )}
+                    </span>
+                    <span className="font-mono text-xs text-[#B0B0B0]">
+                      ~{formatCurrency(centsToDollars(b.baseEstMonthlyCents))}/mo
+                    </span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        )}
 
         {error && (
           <div className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>
@@ -324,7 +489,12 @@ export function AddNodePopup({ account, onClose, onAdded }) {
           <GhostButton type="button" onClick={onClose} disabled={submitting} className="flex-1">
             Cancel
           </GhostButton>
-          <AccentButton type="button" onClick={handleConfirm} disabled={submitting} className="flex-1">
+          <AccentButton
+            type="button"
+            onClick={handleConfirm}
+            disabled={submitting || (mode === "special" && !selectedBridgeId)}
+            className="flex-1"
+          >
             {submitting ? "Adding…" : "Confirm"}
           </AccentButton>
         </div>
