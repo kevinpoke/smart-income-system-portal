@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { GlassCard, Badge, GhostButton } from "@/components/ui/Primitives";
 import Avatar from "@/components/ui/Avatar";
 import {
@@ -12,6 +12,7 @@ import {
   MailOpen,
   X,
   Search,
+  Image as ImageIcon,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -37,6 +38,47 @@ function displayFullName({ firstName, lastName, name, email }) {
   if (name && name.trim()) return name.trim();
   if (email && email.trim()) return email.trim();
   return "Unknown";
+}
+
+// Long message composer (spec Part 14): the admin reply textarea grows
+// with content up to MAX_COMPOSER_HEIGHT_PX, then scrolls internally.
+const MAX_COMPOSER_HEIGHT_PX = 160;
+const MIN_COMPOSER_HEIGHT_PX = 44;
+
+// Image messages (spec Part 8): kept in sync with lib/supportUploads.js's
+// server-side validation -- this client check is purely a fast/friendly
+// pre-check; the server re-validates everything regardless.
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+function autosizeTextarea(el) {
+  if (!el) return;
+  el.style.height = "auto";
+  const next = Math.min(el.scrollHeight, MAX_COMPOSER_HEIGHT_PX);
+  el.style.height = `${Math.max(next, MIN_COMPOSER_HEIGHT_PX)}px`;
+}
+
+function AdminMessageAttachmentImage({ attachment }) {
+  if (!attachment) return null;
+  const src = `/api/support/attachments/${attachment.id}`;
+  return (
+    <a
+      href={src}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-1.5 block max-w-[200px] overflow-hidden rounded-lg"
+      title="Open full size"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- authenticated,
+          per-attachment API route (not a static/optimizable asset). */}
+      <img
+        src={src}
+        alt="Attachment"
+        className="max-h-[200px] w-full rounded-lg object-cover"
+        loading="lazy"
+      />
+    </a>
+  );
 }
 
 // Analytics (formatDurationMs/StatCard/PERIOD_OPTIONS/AnalyticsTab) moved
@@ -133,8 +175,30 @@ export default function AdminChatsPage() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
+  const fileInputRef = useRef(null);
 
   const [contextMenu, setContextMenu] = useState(null); // { id, x, y }
+
+  // Additional-requirements batch: preserve the LEFT conversation list's
+  // scroll position across any conversations-list refresh (send a
+  // message, silent poll, mark-unread, tag toggle, etc.) -- see
+  // leftListScrollRef (the actual scrollable DOM node) and
+  // preservedLeftScrollTopRef (captured immediately before each fetch,
+  // restored via a layout effect keyed on `conversations` below). This
+  // is intentionally NOT reset by list reordering (newest-activity sort
+  // moving the just-replied-to conversation to the top) -- the viewport
+  // itself must not jump, even though the underlying row order changes,
+  // per spec ("preserve the user's visual position as closely as
+  // practical").
+  const leftListScrollRef = useRef(null);
+  const preservedLeftScrollTopRef = useRef(0);
+  function capturePreservedScroll() {
+    if (leftListScrollRef.current) {
+      preservedLeftScrollTopRef.current = leftListScrollRef.current.scrollTop;
+    }
+  }
 
   // Part 6: scroll-to-bottom control for the message pane. `pendingScroll`
   // forces a scroll-to-bottom on the NEXT render for: initial conversation
@@ -163,6 +227,44 @@ export default function AdminChatsPage() {
     });
   }
 
+  useEffect(() => {
+    autosizeTextarea(composerRef.current);
+  }, [draft]);
+
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    };
+  }, [imagePreviewUrl]);
+
+  function handlePickImage() {
+    fileInputRef.current?.click();
+  }
+
+  function handleImageSelected(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setSendError("");
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setSendError("Unsupported image type. Please choose a JPEG, PNG, WEBP, or GIF image.");
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setSendError("Image is too large. Maximum size is 5 MB.");
+      return;
+    }
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setImageFile(file);
+    setImagePreviewUrl(URL.createObjectURL(file));
+  }
+
+  function clearSelectedImage() {
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setImageFile(null);
+    setImagePreviewUrl(null);
+  }
+
   function scrollMessagePaneToBottom() {
     const el = messagePaneRef.current;
     if (!el) return;
@@ -189,6 +291,7 @@ export default function AdminChatsPage() {
   }, [detail]);
 
   const loadConversations = useCallback(async () => {
+    capturePreservedScroll();
     setListStatus((s) => (s === "ready" ? s : "loading"));
     try {
       const params = new URLSearchParams();
@@ -213,8 +316,12 @@ export default function AdminChatsPage() {
   // conversation list and disrupt browsing) and never clobbers state on
   // a transient network error. Preserves whatever filter/tag/search
   // selection is currently active since it reads the same params as
-  // loadConversations.
+  // loadConversations. Additional-requirements batch: also captures the
+  // left list's current scroll position before the fetch, same as
+  // loadConversations, so a background poll refresh can never yank the
+  // admin's scroll position either.
   const silentRefreshList = useCallback(async () => {
+    capturePreservedScroll();
     try {
       const params = new URLSearchParams();
       params.set("filter", filter);
@@ -272,6 +379,21 @@ export default function AdminChatsPage() {
     const id = setInterval(silentRefreshList, 4000);
     return () => clearInterval(id);
   }, [silentRefreshList]);
+
+  // Additional-requirements batch: restores the left conversation list's
+  // scroll position immediately after every `conversations` update
+  // (initial load, silent poll, post-send refresh, mark-unread, tag
+  // toggle, etc.) -- runs synchronously before the browser paints
+  // (useLayoutEffect) so there is no visible flash of the list jumping to
+  // the top and back. Deliberately unconditional (always restores to
+  // whatever was captured immediately before the fetch that produced this
+  // update) rather than only-on-send, since spec Part A calls out ANY
+  // conversations-list refresh, not just the send case.
+  useLayoutEffect(() => {
+    if (leftListScrollRef.current) {
+      leftListScrollRef.current.scrollTop = preservedLeftScrollTopRef.current;
+    }
+  }, [conversations]);
 
   const loadDetail = useCallback(
     async (conversationId, { forceScrollBottom = false } = {}) => {
@@ -430,15 +552,30 @@ export default function AdminChatsPage() {
 
   async function handleSend() {
     const text = draft.trim();
-    if (!text || !selectedId || sending) return;
+    // Per spec Part 15: an image-only reply is sendable; a message with
+    // neither text nor an image is never sent.
+    if ((!text && !imageFile) || !selectedId || sending) return;
     setSendError("");
     setSending(true);
+    const pendingImageFile = imageFile;
+    clearSelectedImage();
     try {
-      const res = await fetch(`/api/admin/support/conversations/${selectedId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
+      let res;
+      if (pendingImageFile) {
+        const formData = new FormData();
+        formData.set("text", text);
+        formData.set("image", pendingImageFile);
+        res = await fetch(`/api/admin/support/conversations/${selectedId}`, {
+          method: "POST",
+          body: formData,
+        });
+      } else {
+        res = await fetch(`/api/admin/support/conversations/${selectedId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+      }
       const data = await res.json();
       if (!res.ok) {
         // Send failed: per spec, do NOT clear the typed draft and keep
@@ -450,6 +587,11 @@ export default function AdminChatsPage() {
       setDraft("");
       // Part 6: after the admin sends a message, keep the pane pinned to
       // the newest message at the bottom -- never jump toward the top.
+      // Additional-requirements batch: loadDetail/loadConversations below
+      // both go through the SAME capturePreservedScroll() /
+      // useLayoutEffect restoration path as every other list refresh, so
+      // sending here can never reset the LEFT conversation list's scroll
+      // position even though it does legitimately refresh the list.
       await loadDetail(selectedId, { forceScrollBottom: true });
       await loadConversations();
     } catch {
@@ -593,8 +735,14 @@ export default function AdminChatsPage() {
               )}
             </div>
 
-            {/* LEFT PANE: internal scrolling, tighter rows (Part 7) */}
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            {/* LEFT PANE: internal scrolling, tighter rows (Part 7).
+                Additional-requirements batch: `leftListScrollRef` is the
+                node whose scrollTop is captured before every list refresh
+                and restored right after (see capturePreservedScroll() /
+                the useLayoutEffect above) so sending a message, a
+                background poll tick, etc. never resets this pane to the
+                top. */}
+            <div ref={leftListScrollRef} className="min-h-0 flex-1 overflow-y-auto">
               {listStatus === "loading" && (
                 <div className="p-3 text-xs text-[#707070]">Loading conversations…</div>
               )}
@@ -650,6 +798,16 @@ export default function AdminChatsPage() {
                         {c.accountUpsellPurchased && (
                           <Badge tone="accent" className="flex-shrink-0 px-1.5 py-0 text-[9px]">
                             Upsell
+                          </Badge>
+                        )}
+                        {c.accountWaitlistJoined && (
+                          <Badge tone="default" className="flex-shrink-0 px-1.5 py-0 text-[9px]">
+                            Waitlist
+                          </Badge>
+                        )}
+                        {c.accountModule10Watched && (
+                          <Badge tone="success" className="flex-shrink-0 px-1.5 py-0 text-[9px]">
+                            Mod10
                           </Badge>
                         )}
                         <span
@@ -805,7 +963,10 @@ export default function AdminChatsPage() {
                             >
                               {displayName}
                             </div>
-                            <div>{m.body}</div>
+                            {m.body && (
+                              <div className="whitespace-pre-wrap break-words">{m.body}</div>
+                            )}
+                            <AdminMessageAttachmentImage attachment={m.attachment} />
                             <div
                               className={`mt-1 text-[10px] ${
                                 isAdmin ? "text-[#06121a]/60" : "text-[#B0B0B0]"
@@ -827,20 +988,64 @@ export default function AdminChatsPage() {
                 )}
 
                 <div className="flex-shrink-0 border-t border-white/10 p-2.5">
-                  <div className="flex items-center gap-2">
+                  {imagePreviewUrl && (
+                    <div className="mb-2 flex items-center gap-2">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- local
+                          object URL preview, not a static/optimizable asset. */}
+                      <img
+                        src={imagePreviewUrl}
+                        alt="Selected"
+                        className="h-12 w-12 rounded-lg object-cover"
+                      />
+                      <button
+                        onClick={clearSelectedImage}
+                        className="rounded-lg bg-white/5 p-1.5 text-[#B0B0B0] hover:bg-white/10"
+                        title="Remove image"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+                  <div className="flex items-end gap-2">
                     <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="hidden"
+                      onChange={handleImageSelected}
+                    />
+                    <button
+                      onClick={handlePickImage}
+                      disabled={sending}
+                      title="Attach an image"
+                      className="flex-shrink-0 rounded-xl bg-white/5 p-2.5 text-[#B0B0B0] hover:bg-white/10 disabled:opacity-60"
+                    >
+                      <ImageIcon className="h-4 w-4" />
+                    </button>
+                    {/* Long message composer (spec Part 14): multiline textarea
+                        that auto-grows up to MAX_COMPOSER_HEIGHT_PX, then
+                        scrolls internally -- see autosizeTextarea(). Enter
+                        sends, Shift+Enter inserts a newline (spec Part 15). */}
+                    <textarea
                       ref={composerRef}
                       value={draft}
                       onChange={(e) => setDraft(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSend();
+                        }
+                      }}
                       placeholder="Reply as admin..."
                       disabled={sending}
-                      className="flex-1 rounded-xl bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder-[#707070] outline-none focus:ring-1 focus:ring-[#32B5FF] disabled:opacity-60"
+                      rows={1}
+                      style={{ maxHeight: MAX_COMPOSER_HEIGHT_PX, minHeight: MIN_COMPOSER_HEIGHT_PX }}
+                      className="flex-1 resize-none overflow-y-auto rounded-xl bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder-[#707070] outline-none focus:ring-1 focus:ring-[#32B5FF] disabled:opacity-60"
                     />
                     <button
                       onClick={handleSend}
-                      disabled={sending || !draft.trim()}
-                      className="rounded-xl bg-[#32B5FF] p-2.5 text-[#06121a] hover:bg-[#4dc0ff] disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={sending || (!draft.trim() && !imageFile)}
+                      className="flex-shrink-0 rounded-xl bg-[#32B5FF] p-2.5 text-[#06121a] hover:bg-[#4dc0ff] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Send className="h-4 w-4" />
                     </button>

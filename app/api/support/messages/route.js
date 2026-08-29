@@ -4,6 +4,7 @@ import { getCurrentAccountRaw } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
 import { getOrCreateConversation, getMessages, postMessage, markCustomerRead } from "@/lib/supportEngine";
 import { deliverDueMessages } from "@/lib/supportAutomation";
+import { saveSupportImageUpload } from "@/lib/supportUploads";
 
 // Customer's own support conversation. Always scoped to the authenticated
 // session's account id -- there is no conversation/account id parameter
@@ -71,6 +72,7 @@ export async function GET() {
       createdAt: m.created_at,
       senderFirstName: m.senderFirstName,
       senderPhotoUrl: m.senderPhotoUrl,
+      attachment: m.attachment,
     })),
   });
 }
@@ -92,19 +94,63 @@ export async function POST(request) {
     );
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  // Image messages (Support Chat image composer batch): multipart/
+  // form-data when attaching an image (fields "text" + "image"), plain
+  // JSON ({ text }) for text-only sends -- both remain supported. The
+  // customer can ONLY ever upload into their own conversation (there is
+  // no conversation/account id anywhere in this request -- see the file
+  // header comment), so this cannot be abused to attach an image to
+  // another customer's thread.
+  const contentType = request.headers.get("content-type") || "";
+  let text = "";
+  let imageFile = null;
+
+  if (contentType.includes("multipart/form-data")) {
+    let formData;
+    try {
+      formData = await request.formData();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    }
+    const rawText = formData.get("text");
+    text = typeof rawText === "string" ? rawText.trim() : "";
+    const file = formData.get("image");
+    if (file && typeof file === "object" && typeof file.arrayBuffer === "function" && file.size > 0) {
+      imageFile = file;
+    }
+  } else {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    }
+    text = typeof body.text === "string" ? body.text.trim() : "";
   }
 
-  const text = typeof body.text === "string" ? body.text.trim() : "";
-  if (!text) {
+  if (!text && !imageFile) {
     return NextResponse.json({ error: "Message cannot be empty." }, { status: 400 });
   }
   if (text.length > 4000) {
     return NextResponse.json({ error: "Message is too long." }, { status: 400 });
+  }
+
+  let attachment = null;
+  if (imageFile) {
+    try {
+      const saved = await saveSupportImageUpload(imageFile);
+      attachment = {
+        storageKey: saved.storageKey,
+        mimeType: saved.mimeType,
+        sizeBytes: saved.sizeBytes,
+        originalFilename: typeof imageFile.name === "string" ? imageFile.name.slice(0, 255) : null,
+      };
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "Unable to upload image." },
+        { status: 400 }
+      );
+    }
   }
 
   recordAttempt(account.id);
@@ -115,6 +161,7 @@ export async function POST(request) {
     conversationId: conversation.id,
     senderRole: "customer",
     body: text,
+    attachment,
   });
 
   if (result.duplicate) {

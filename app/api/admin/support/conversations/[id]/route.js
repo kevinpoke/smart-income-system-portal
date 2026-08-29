@@ -8,6 +8,7 @@ import {
   postMessage,
   getConversationTags,
 } from "@/lib/supportEngine";
+import { saveSupportImageUpload } from "@/lib/supportUploads";
 
 // Single conversation detail for the admin inbox. GET marks incoming
 // customer messages as read (per spec: "Opening a conversation marks
@@ -67,6 +68,7 @@ export async function GET(request, { params }) {
       readAt: m.read_at,
       senderFirstName: m.senderFirstName,
       senderPhotoUrl: m.senderPhotoUrl,
+      attachment: m.attachment,
     })),
   });
 }
@@ -89,19 +91,63 @@ export async function POST(request, { params }) {
     return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  // Image messages (Support Chat image composer batch): the client sends
+  // multipart/form-data when attaching an image (fields "text" + "image"),
+  // and plain JSON ({ text }) for text-only sends -- both remain
+  // supported so this route is fully backward compatible with any
+  // existing caller that only ever sent JSON.
+  const contentType = request.headers.get("content-type") || "";
+  let text = "";
+  let imageFile = null;
+
+  if (contentType.includes("multipart/form-data")) {
+    let formData;
+    try {
+      formData = await request.formData();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    }
+    const rawText = formData.get("text");
+    text = typeof rawText === "string" ? rawText.trim() : "";
+    const file = formData.get("image");
+    if (file && typeof file === "object" && typeof file.arrayBuffer === "function" && file.size > 0) {
+      imageFile = file;
+    }
+  } else {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    }
+    text = typeof body.text === "string" ? body.text.trim() : "";
   }
 
-  const text = typeof body.text === "string" ? body.text.trim() : "";
-  if (!text) {
+  // Per spec Part 15: an image-only message is allowed, but a message
+  // with neither text nor an image is never sent.
+  if (!text && !imageFile) {
     return NextResponse.json({ error: "Message cannot be empty." }, { status: 400 });
   }
   if (text.length > 4000) {
     return NextResponse.json({ error: "Message is too long." }, { status: 400 });
+  }
+
+  let attachment = null;
+  if (imageFile) {
+    try {
+      const saved = await saveSupportImageUpload(imageFile);
+      attachment = {
+        storageKey: saved.storageKey,
+        mimeType: saved.mimeType,
+        sizeBytes: saved.sizeBytes,
+        originalFilename: typeof imageFile.name === "string" ? imageFile.name.slice(0, 255) : null,
+      };
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "Unable to upload image." },
+        { status: 400 }
+      );
+    }
   }
 
   const result = postMessage(db, {
@@ -109,6 +155,7 @@ export async function POST(request, { params }) {
     senderRole: "admin",
     senderAccountId: guard.account.id,
     body: text,
+    attachment,
   });
 
   if (result.duplicate) {

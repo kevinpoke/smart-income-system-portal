@@ -212,23 +212,6 @@ export default function WithdrawalsPage() {
         </GlassCard>
       </FadeIn>
 
-      <FadeIn delay={0.05}>
-        <GlassCard className="flex flex-col items-start justify-between gap-4 p-6 sm:flex-row sm:items-center">
-          <div>
-            <div className="text-sm font-semibold text-white">Test Withdrawal</div>
-            <div className="mt-1 text-xs text-[#B0B0B0]">
-              Test withdrawals are temporarily unavailable while this feature is finalized.
-            </div>
-            <Badge tone="warning" className="mt-2">
-              Unavailable
-            </Badge>
-          </div>
-          <AccentButton disabled className="cursor-not-allowed opacity-50">
-            Complete Test Withdrawal
-          </AccentButton>
-        </GlassCard>
-      </FadeIn>
-
       <FadeIn delay={0.1}>
         <GlassCard className="flex flex-col items-start justify-between gap-3 p-5 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">

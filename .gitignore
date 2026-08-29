@@ -40,6 +40,13 @@ yarn-error.log*
 *.db-wal
 *.db-shm
 
+# support chat image attachments — persisted on the data volume in
+# production, never committed to git (see lib/supportUploads.js). This
+# is already covered by the /data/ rule above; listed explicitly for
+# clarity since it is a new persistent-storage location added in this
+# batch.
+/data/support-uploads/
+
 # refinement pass: user-uploaded profile photos -- never commit real
 # uploaded images; keep the directory structure via .gitkeep only.
 /public/uploads/avatars/*

@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { GlassCard, SectionTitle, FadeIn } from "@/components/ui/Primitives";
 import Avatar from "@/components/ui/Avatar";
 import { useAccount } from "@/lib/useAccount";
-import { Send, LifeBuoy, RefreshCw } from "lucide-react";
+import { Send, LifeBuoy, RefreshCw, Image as ImageIcon, X } from "lucide-react";
 
 function formatTime(iso) {
   try {
@@ -14,6 +14,48 @@ function formatTime(iso) {
   }
 }
 
+// Long message composer (spec Part 14): the textarea grows with content
+// up to MAX_COMPOSER_HEIGHT_PX, then scrolls internally rather than
+// growing forever.
+const MAX_COMPOSER_HEIGHT_PX = 160;
+const MIN_COMPOSER_HEIGHT_PX = 44;
+
+// Image messages (spec Part 8): kept in sync with lib/supportUploads.js's
+// server-side validation -- the client check is purely a fast/friendly
+// pre-check; the server re-validates everything regardless.
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+function autosizeTextarea(el) {
+  if (!el) return;
+  el.style.height = "auto";
+  const next = Math.min(el.scrollHeight, MAX_COMPOSER_HEIGHT_PX);
+  el.style.height = `${Math.max(next, MIN_COMPOSER_HEIGHT_PX)}px`;
+}
+
+function MessageAttachmentImage({ attachment }) {
+  if (!attachment) return null;
+  const src = `/api/support/attachments/${attachment.id}`;
+  return (
+    <a
+      href={src}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-1.5 block max-w-[220px] overflow-hidden rounded-lg"
+      title="Open full size"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- authenticated,
+          per-attachment API route (not a static/optimizable asset). */}
+      <img
+        src={src}
+        alt="Attachment"
+        className="max-h-[220px] w-full rounded-lg object-cover"
+        loading="lazy"
+      />
+    </a>
+  );
+}
+
 export default function SupportPage() {
   const { account } = useAccount();
   const [draft, setDraft] = useState("");
@@ -21,7 +63,11 @@ export default function SupportPage() {
   const [status, setStatus] = useState("loading"); // loading | ready | error
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
   const scrollRef = useRef(null);
+  const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   // Portal reliability pass: silent background refresh used by the
   // polling interval below -- unlike `load()`, this never flips `status`
@@ -90,12 +136,64 @@ export default function SupportPage() {
     }
   }, [messages]);
 
+  useEffect(() => {
+    autosizeTextarea(textareaRef.current);
+  }, [draft]);
+
+  // Object URL cleanup for the local image preview.
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    };
+  }, [imagePreviewUrl]);
+
+  function handlePickImage() {
+    fileInputRef.current?.click();
+  }
+
+  function handleImageSelected(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+    setSendError("");
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setSendError("Unsupported image type. Please choose a JPEG, PNG, WEBP, or GIF image.");
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setSendError("Image is too large. Maximum size is 5 MB.");
+      return;
+    }
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setImageFile(file);
+    setImagePreviewUrl(URL.createObjectURL(file));
+  }
+
+  function clearSelectedImage() {
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setImageFile(null);
+    setImagePreviewUrl(null);
+  }
+
+  // Enter -> send, Shift+Enter -> newline (spec Part 15).
+  function handleComposerKeyDown(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }
+
   async function handleSend() {
     const text = draft.trim();
-    if (!text || sending) return;
+    // Per spec Part 15: image-only messages are sendable; a message with
+    // neither text nor an image is never sent.
+    if ((!text && !imageFile) || sending) return;
     setSendError("");
     setSending(true);
-    // Optimistic append; reconciled by refetch below.
+    // Optimistic append; reconciled by refetch below. Image-only optimistic
+    // rows skip the attachment preview (it's reconciled almost immediately
+    // by the real server round-trip) to avoid managing a second object URL
+    // lifecycle for a transient placeholder.
     const optimistic = {
       id: `pending-${Date.now()}`,
       senderRole: "customer",
@@ -104,12 +202,22 @@ export default function SupportPage() {
     };
     setMessages((prev) => [...prev, optimistic]);
     setDraft("");
+    const pendingImageFile = imageFile;
+    clearSelectedImage();
     try {
-      const res = await fetch("/api/support/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
+      let res;
+      if (pendingImageFile) {
+        const formData = new FormData();
+        formData.set("text", text);
+        formData.set("image", pendingImageFile);
+        res = await fetch("/api/support/messages", { method: "POST", body: formData });
+      } else {
+        res = await fetch("/api/support/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+      }
       const data = await res.json();
       if (!res.ok) {
         setSendError(data.error || "Unable to send message.");
@@ -206,7 +314,15 @@ export default function SupportPage() {
                       >
                         {displayName}
                       </div>
-                      <div>{m.body}</div>
+                      {/* Multiline rendering (spec Part 17): whitespace-pre-wrap
+                          preserves newlines/blank lines exactly as stored,
+                          break-words prevents horizontal overflow on long
+                          unbroken tokens, and this is plain text interpolation
+                          (never dangerouslySetInnerHTML) so it stays escaped. */}
+                      {m.body && (
+                        <div className="whitespace-pre-wrap break-words">{m.body}</div>
+                      )}
+                      <MessageAttachmentImage attachment={m.attachment} />
                       <div
                         className={`mt-1 text-[10px] ${
                           isCustomer ? "text-[#06121a]/60" : "text-[#B0B0B0]"
@@ -232,19 +348,59 @@ export default function SupportPage() {
               {sendError}
             </div>
           )}
-          <div className="flex items-center gap-2 border-t border-white/10 p-3">
+          {imagePreviewUrl && (
+            <div className="flex items-center gap-2 border-t border-white/10 px-5 py-2">
+              {/* eslint-disable-next-line @next/next/no-img-element -- local
+                  object URL preview, not a static/optimizable asset. */}
+              <img
+                src={imagePreviewUrl}
+                alt="Selected"
+                className="h-14 w-14 rounded-lg object-cover"
+              />
+              <button
+                onClick={clearSelectedImage}
+                className="rounded-lg bg-white/5 p-1.5 text-[#B0B0B0] hover:bg-white/10"
+                title="Remove image"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+          <div className="flex items-end gap-2 border-t border-white/10 p-3">
             <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="hidden"
+              onChange={handleImageSelected}
+            />
+            <button
+              onClick={handlePickImage}
+              disabled={sending}
+              title="Attach an image"
+              className="flex-shrink-0 rounded-xl bg-white/5 p-2.5 text-[#B0B0B0] hover:bg-white/10 disabled:opacity-60"
+            >
+              <ImageIcon className="h-4 w-4" />
+            </button>
+            {/* Long message composer (spec Part 14): multiline textarea that
+                auto-grows up to MAX_COMPOSER_HEIGHT_PX, then scrolls
+                internally -- see autosizeTextarea(). Enter sends,
+                Shift+Enter inserts a newline (spec Part 15). */}
+            <textarea
+              ref={textareaRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSend()}
+              onKeyDown={handleComposerKeyDown}
               placeholder="Type your message..."
               disabled={sending}
-              className="flex-1 rounded-xl bg-white/5 px-4 py-2.5 text-sm text-white placeholder-[#707070] outline-none focus:ring-1 focus:ring-[#32B5FF] disabled:opacity-60"
+              rows={1}
+              style={{ maxHeight: MAX_COMPOSER_HEIGHT_PX, minHeight: MIN_COMPOSER_HEIGHT_PX }}
+              className="flex-1 resize-none overflow-y-auto rounded-xl bg-white/5 px-4 py-2.5 text-sm text-white placeholder-[#707070] outline-none focus:ring-1 focus:ring-[#32B5FF] disabled:opacity-60"
             />
             <button
               onClick={handleSend}
-              disabled={sending || !draft.trim()}
-              className="rounded-xl bg-[#32B5FF] p-2.5 text-[#06121a] hover:bg-[#4dc0ff] disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={sending || (!draft.trim() && !imageFile)}
+              className="flex-shrink-0 rounded-xl bg-[#32B5FF] p-2.5 text-[#06121a] hover:bg-[#4dc0ff] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Send className="h-4 w-4" />
             </button>
