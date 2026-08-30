@@ -121,7 +121,7 @@ export default function WithdrawalsPage() {
         <LocationRequiredCard
           body={
             module10Locked
-              ? "Please complete the Payout module checklist to unlock your earnings (Module 10)"
+              ? "Please complete watching Module 10 to unlock this section."
               : "Complete your ISP Setup to unlock Withdrawals."
           }
         />

@@ -7,13 +7,11 @@ import { useAccount } from "@/lib/useAccount";
 import { Send, LifeBuoy, RefreshCw, Image as ImageIcon, X } from "lucide-react";
 import LinkifiedText from "@/components/support/LinkifiedText";
 
-function formatTime(iso) {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return "";
-  }
-}
+// NOTE: formatTime() was removed from this page -- the customer Support
+// Chat no longer renders any message timestamp (admin-portal batch,
+// requirement override section J). The ADMIN Support Chat
+// (app/(portal)/admin/chats/page.js) has its own separate formatTime()
+// and continues to show timestamps for both sides, unaffected.
 
 // Long message composer (spec Part 14): the textarea grows with content
 // up to MAX_COMPOSER_HEIGHT_PX, then scrolls internally rather than
@@ -331,23 +329,19 @@ export default function SupportPage() {
                         </div>
                       )}
                       <MessageAttachmentImage attachment={m.attachment} />
-                      {/* ISP support controls + special bridges batch,
-                          spec sections 10-11: the CUSTOMER never sees a
-                          timestamp on THEIR OWN message -- only on
-                          admin/Jenny messages. This is display-only:
-                          created_at is still recorded/returned by the
-                          API for every message (see
-                          app/api/support/messages/route.js), just not
-                          rendered here for customer-origin rows. */}
-                      {!isCustomer && (
-                        <div
-                          className={`mt-1 text-[10px] ${
-                            isCustomer ? "text-[#06121a]/60" : "text-[#B0B0B0]"
-                          }`}
-                        >
-                          {formatTime(m.createdAt)}
-                        </div>
-                      )}
+                      {/* Admin-portal batch, requirement override (section
+                          J): customer Support Chat now shows NO
+                          timestamps on ANY message -- neither admin/Jenny
+                          nor the customer's own. This SUPERSEDES the
+                          prior "hide only on customer's own message" rule
+                          (see app/(portal)/admin/chats/page.js for the
+                          separate ADMIN Support Chat view, which still
+                          shows timestamps for both sides -- unaffected by
+                          this change). Display-only: created_at/edited_at
+                          are still recorded/returned by the API for every
+                          message (see app/api/support/messages/route.js),
+                          simply never rendered on this page for either
+                          side. */}
                     </div>
                     {isCustomer && (
                       <Avatar

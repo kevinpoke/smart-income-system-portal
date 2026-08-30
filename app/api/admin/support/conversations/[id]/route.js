@@ -9,6 +9,7 @@ import {
   getConversationTags,
 } from "@/lib/supportEngine";
 import { saveSupportImageUpload } from "@/lib/supportUploads";
+import { WITHDRAWALS_MODULE_10_GATE_ID } from "@/lib/mockData";
 
 // Single conversation detail for the admin inbox. GET marks incoming
 // customer messages as read (per spec: "Opening a conversation marks
@@ -45,8 +46,24 @@ export async function GET(request, { params }) {
 
   const messages = getMessages(db, conversationId, conversation.account_id);
   const tags = getConversationTags(db, conversationId);
+  // Admin-portal batch (Support header tags, spec sections C-E): reuse
+  // the EXACT SAME authoritative columns/subquery shapes
+  // lib/supportEngine.js#listConversationsForAdmin() already reads for
+  // the left conversation-list row badges (accounts.upsell_purchased,
+  // accounts.waitlist_joined_at, and the account_module_progress
+  // completed_at subquery for WITHDRAWALS_MODULE_10_GATE_ID) -- NOT a
+  // second/duplicate tag computation. Fetched in this SAME single query
+  // (no extra round-trip, no N+1) so the header can render immediately
+  // alongside the rest of the conversation detail response.
   const account = db
-    .prepare(`SELECT id, email, name, first_name, last_name, profile_photo_url FROM accounts WHERE id = ?`)
+    .prepare(
+      `SELECT id, email, name, first_name, last_name, profile_photo_url,
+              upsell_purchased, waitlist_joined_at,
+              (SELECT completed_at FROM account_module_progress
+                 WHERE account_module_progress.account_id = accounts.id
+                   AND account_module_progress.module_key = ${WITHDRAWALS_MODULE_10_GATE_ID}) as module10_completed_at
+       FROM accounts WHERE id = ?`
+    )
     .get(conversation.account_id);
 
   return NextResponse.json({
@@ -59,6 +76,13 @@ export async function GET(request, { params }) {
       accountLastName: account?.last_name,
       accountPhotoUrl: account?.profile_photo_url,
       tags,
+      // Same three automatic-tag booleans the left conversation list
+      // already exposes as accountUpsellPurchased/accountWaitlistJoined/
+      // accountModule10Watched -- identical field names/semantics so the
+      // header and the list row can never disagree.
+      accountUpsellPurchased: Boolean(account?.upsell_purchased),
+      accountWaitlistJoined: Boolean(account?.waitlist_joined_at),
+      accountModule10Watched: Boolean(account?.module10_completed_at),
     },
     messages: messages.map((m) => ({
       id: m.id,

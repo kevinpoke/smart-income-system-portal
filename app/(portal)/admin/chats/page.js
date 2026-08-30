@@ -722,6 +722,34 @@ export default function AdminChatsPage() {
     [detail]
   );
 
+  // Admin-portal batch (Support header tags, spec sections C-E): compact
+  // badge list for the currently-open conversation's header, combining
+  // the three existing AUTOMATIC tags (Upsell/Waitlist/Mod10 -- read
+  // straight off `detail.conversation`'s accountUpsellPurchased/
+  // accountWaitlistJoined/accountModule10Watched booleans, the exact
+  // same authoritative fields the left conversation-list row already
+  // reads to render its own badges) with any existing MANUAL/custom
+  // Support tags actually assigned to this conversation (from
+  // `detail.conversation.tags`, the same array the tag-toggle row below
+  // already renders). No new tag storage, no extra API call -- this is
+  // entirely derived from the single conversation-detail response
+  // already being fetched. Recomputed on every `detail` change, so
+  // switching conversations (or a Waitlist toggle elsewhere causing a
+  // refetch) always reflects the CURRENTLY selected customer, never a
+  // stale previous one.
+  const headerBadges = useMemo(() => {
+    const conv = detail?.conversation;
+    if (!conv) return [];
+    const badges = [];
+    if (conv.accountUpsellPurchased) badges.push({ key: "upsell", label: "Upsell", tone: "accent" });
+    if (conv.accountWaitlistJoined) badges.push({ key: "waitlist", label: "Waitlist", tone: "warning" });
+    if (conv.accountModule10Watched) badges.push({ key: "mod10", label: "Mod10", tone: "success" });
+    for (const tag of conv.tags || []) {
+      badges.push({ key: `tag-${tag.id}`, label: tag.name, tone: "default" });
+    }
+    return badges;
+  }, [detail]);
+
   const headerName = displayFullName({
     firstName: detail?.conversation?.accountFirstName || selectedConversationMeta?.accountFirstName,
     lastName: detail?.conversation?.accountLastName || selectedConversationMeta?.accountLastName,
@@ -986,6 +1014,24 @@ export default function AdminChatsPage() {
                       size={28}
                     />
                     <div>
+                      {/* Admin-portal batch (spec section C): every tag
+                          currently associated with this customer/
+                          conversation (automatic Upsell/Waitlist/Mod10 +
+                          any manual/custom Support tags), placed
+                          immediately above the name/email so it's visible
+                          without looking back at the conversation list.
+                          Recomputed from `detail` on every conversation
+                          switch -- never shows a stale previous
+                          customer's tags (see headerBadges above). */}
+                      {headerBadges.length > 0 && (
+                        <div className="mb-0.5 flex flex-wrap gap-1">
+                          {headerBadges.map((b) => (
+                            <Badge key={b.key} tone={b.tone} className="px-1.5 py-0.5 text-[10px]">
+                              {b.label}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                       <div className="text-sm font-semibold text-white">{headerName}</div>
                       <div className="text-[11px] text-[#707070]">
                         {detail?.conversation?.accountEmail || selectedConversationMeta?.accountEmail}

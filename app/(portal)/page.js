@@ -27,7 +27,6 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   TrendingUp,
-  Sparkles,
   Info,
   Wifi,
   WifiOff,
@@ -54,30 +53,13 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
-function InactiveState() {
-  return (
-    <FadeIn>
-      <GlassCard className="flex flex-col items-center justify-center gap-4 px-6 py-20 text-center">
-        <Sparkles className="h-10 w-10 text-[#32B5FF]" />
-        <div>
-          <h2 className="text-xl font-bold text-white">
-            Your Bridge Isn&apos;t Earning Yet
-          </h2>
-          <p className="mx-auto mt-2 max-w-md text-sm text-[#B0B0B0]">
-            Complete your ISP Setup and get your participation approved to
-            start earning.
-          </p>
-        </div>
-        <Link
-          href="/isp-setup"
-          className="rounded-xl bg-[#32B5FF] px-5 py-2.5 text-sm font-semibold text-[#06121a] shadow-[0_0_20px_rgba(50,181,255,0.35)] hover:bg-[#4dc0ff]"
-        >
-          Go to ISP Setup
-        </Link>
-      </GlassCard>
-    </FadeIn>
-  );
-}
+// NOTE: the previous InactiveState() full-page replacement component was
+// removed here -- the Dashboard ISP lock (admin-portal batch) no longer
+// swaps the whole page out for a separate "inactive" view. Instead the
+// real Dashboard layout is always rendered (dimmed + interaction-
+// disabled + a centered "Complete ISP Setup" overlay button) so the
+// customer always sees the actual Dashboard shape. See DashboardPage()
+// below for the current implementation.
 
 // Live Earnings interpolates smoothly BETWEEN server polls. The server
 // (lib/earningsEngine.js computeEarningsSummary) is the ONLY source of
@@ -592,6 +574,26 @@ export default function DashboardPage() {
 
   const active = Boolean(summary?.active);
 
+  // Admin-portal batch (Dashboard ISP lock, spec sections 5-7): the
+  // SAME `active` boolean above -- derived from
+  // lib/earningsEngine.js#computeEarningsSummary()'s
+  // `isp_status === "active" && !!node_connected_at` -- is now ALSO the
+  // single authoritative Dashboard-lock gate. No new/duplicate
+  // "dashboard unlocked" flag is introduced anywhere. This is
+  // deliberately the SAME condition that already gates every other
+  // customer-facing "is this account actually earning" check in this
+  // file (useLiveEarnings's `!summary?.active` early-return, which is
+  // why `live`/`today`/`week`/`month`/`lifetime` are already
+  // mathematically 0 for a non-active account with zero code duplication
+  // -- the zero-state numbers below are the REAL computed values, not a
+  // separately-hardcoded "$0.00" string).
+  //
+  // Per spec: 1-hour automatic approval alone (isp_status =
+  // "approved_awaiting_user") and manual admin approval alone (also
+  // "approved_awaiting_user" until the customer's own final ISP
+  // Confirmation flips it to "active") must BOTH still show the locked
+  // Dashboard -- which they do here, since only "active" satisfies
+  // `active`.
   return (
     <div className="space-y-6">
       <SectionTitle
@@ -600,10 +602,25 @@ export default function DashboardPage() {
         subtitle="Track your Bridge earnings and network performance."
       />
 
-      {!active ? (
-        <InactiveState />
-      ) : (
-        <>
+      {/* Dashboard ISP lock: the layout below is ALWAYS rendered (never
+          swapped for a separate "inactive" page) so the customer always
+          sees the real Dashboard shape -- per spec "Dashboard layout
+          remains visible" -- but is visually dimmed and has all
+          interaction disabled via `pointer-events-none` while `!active`.
+          A centered "Complete ISP Setup" button overlays this dimmed
+          layout, linking to the SAME canonical /isp-setup route already
+          used everywhere else in the app (see isp-setup/page.js) -- no
+          new/duplicate ISP Setup entry point.
+          `loading` still renders nothing above (see the early return
+          above this function body) so a real, non-zero value can never
+          flash before the lock state is known -- the very first
+          non-loading render already has the correct `active` value from
+          the just-fetched `summary`. */}
+      <div className="relative">
+        <div
+          className={active ? "" : "pointer-events-none select-none opacity-30 blur-[1px]"}
+          aria-hidden={active ? undefined : true}
+        >
           {/* Live Earnings + WiFi Control */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
             <FadeIn>
@@ -710,8 +727,19 @@ export default function DashboardPage() {
 
           {/* Your Nodes */}
           <YourNodesSection nodes={nodes} loading={nodesLoading} />
-        </>
-      )}
+        </div>
+
+        {!active && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center">
+            <Link
+              href="/isp-setup"
+              className="rounded-xl bg-[#32B5FF] px-6 py-3 text-sm font-semibold text-[#06121a] shadow-[0_0_30px_rgba(50,181,255,0.5)] hover:bg-[#4dc0ff]"
+            >
+              Complete ISP Setup
+            </Link>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -53,8 +53,7 @@ import { hasModuleAccess, hasWithdrawalsModule10Access } from "@/lib/moduleAcces
 // never be reused for the Payouts tab's separate Module 6 gate (see
 // app/api/payouts/estimates/route.js / app/(portal)/payouts/page.js for
 // that independent message).
-const MODULE_10_LOCK_MESSAGE =
-  "Please complete the Payout module checklist to unlock your earnings (Module 10)";
+const MODULE_10_LOCK_MESSAGE = "Please complete watching Module 10 to unlock this section.";
 
 export async function GET() {
   const account = await getCurrentAccountRaw();
