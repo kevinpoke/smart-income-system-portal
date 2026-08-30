@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { getCurrentAccountRaw } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
 import { computeWaitlistStatus, waitlistDeadlineMs } from "@/lib/waitlistEngine";
+import { scheduleWaitlistSelectionMessage } from "@/lib/supportAutomation";
 
 // Customer joins the Nodes waitlist. Account is derived ENTIRELY from the
 // authenticated session -- the request body is never read for an account
@@ -70,6 +71,22 @@ export async function POST(request) {
            waitlist_started_at = COALESCE(waitlist_started_at, ?)
        WHERE id = ?`
     ).run(now, now, account.id);
+
+    // WAITLIST-48H-MESSAGE batch (spec sections D/E/F/G): this is the
+    // ONE, explicit "successful new waitlist JOIN action" hook -- fresh
+    // was just confirmed NOT already on the waitlist (the 409 branch
+    // above), so reaching here always means a genuinely NEW join, never
+    // a pre-existing member. Scheduling happens INSIDE this same
+    // transaction (scheduleMessage() issues no BEGIN/COMMIT of its own --
+    // see lib/supportAutomation.js) so the join write and the message
+    // schedule commit atomically together: a crash between them is
+    // impossible, and a retried/duplicate request either sees
+    // waitlist_joined_at already set (409, short-circuits above) or races
+    // this same transaction and is serialized by SQLite. The event_key
+    // (tied to accountId only, see waitlistSelectionEventKey()) also
+    // means even a hypothetical schedule call from two different code
+    // paths could never double-schedule.
+    scheduleWaitlistSelectionMessage(db, { accountId: account.id, joinedAtIso: now });
 
     db.exec("COMMIT");
   } catch (err) {

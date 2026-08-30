@@ -817,13 +817,20 @@ export default function AdminChatsPage() {
                 )}
               </div>
 
-              {/* Part 4: filter tabs with counts on Unread/Upsell only */}
+              {/* Part 4 (+ SUPPORT-FILTER-WAITLIST-MOD10 batch): filter
+                  tabs with counts on Unread/Upsell only. Waitlist/Mod10
+                  are two NEW selectable values added to this SAME
+                  single-select filter tab-bar (see listConversationsForAdmin
+                  in lib/supportEngine.js) -- not a separate/duplicate
+                  filter UI. */}
               <div className="flex flex-wrap gap-1.5">
                 {[
                   { id: "all", label: "All" },
                   { id: "read", label: "Read" },
                   { id: "unread", label: "Unread", count: counts.unreadCount },
                   { id: "upsell", label: "Upsell", count: counts.upsellCount },
+                  { id: "waitlist", label: "Waitlist" },
+                  { id: "mod10", label: "Mod10" },
                 ].map((f) => (
                   <button
                     key={f.id}

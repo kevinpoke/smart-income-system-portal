@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { getCurrentAccountRaw, toPublicAccount } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
 import { completeIspAuthorization } from "@/lib/ispEngine";
+import { scheduleIspConfirmationReminderMessage } from "@/lib/supportAutomation";
 
 // Completes the ISP "I Approve" authorization flow. The client calls
 // this once its 20-second visual progress bar reaches 100%, but the
@@ -48,6 +49,23 @@ export async function POST(request) {
       { error: messages[result.reason] || "Unable to complete authorization." },
       { status: 409 }
     );
+  }
+
+  // ISP-CONFIRMATION-15M-MESSAGE batch: schedule the one-time "join the
+  // Waitlist" reminder ONLY for a genuinely NEW customer-side activation
+  // (never on an idempotent alreadyActive:true no-op -- a double-click,
+  // retried request, or refresh landing here after the account is
+  // already active must never re-schedule). This route never passes a
+  // `source` override to completeIspAuthorization(), so any activation
+  // reaching this success branch is by definition source: "customer" --
+  // the admin one-click "Setup ISP + $71.28" action and the admin ISP
+  // Confirmation route both explicitly pass source: "admin" and never
+  // call through here, so they can never trigger this schedule call.
+  if (!result.alreadyActive) {
+    scheduleIspConfirmationReminderMessage(db, {
+      accountId: account.id,
+      confirmedAtIso: result.account.user_authorized_at,
+    });
   }
 
   return NextResponse.json({ ok: true, account: toPublicAccount(result.account) });

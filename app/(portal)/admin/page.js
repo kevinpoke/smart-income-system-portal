@@ -27,6 +27,7 @@ import {
   Pencil,
   Plus,
   KeyRound,
+  Zap,
 } from "lucide-react";
 
 // Matches the MIN_PASSWORD_LENGTH policy already enforced server-side in
@@ -88,6 +89,69 @@ function UnlockAllModal({ account, onClose, onSubmitted }) {
           </GhostButton>
           <AccentButton type="button" onClick={handleConfirm} disabled={submitting} className="flex-1">
             {submitting ? "Unlocking…" : "Confirm Unlock"}
+          </AccentButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ADMIN-ONE-CLICK-ISP-CREDIT batch: compact confirmation dialog for the
+// new one-click "Setup ISP + $71.28" admin action (spec section R --
+// "show a compact confirmation dialog... with Cancel/Confirm buttons").
+// Mirrors UnlockAllModal above exactly (same modal chrome/pattern, same
+// error handling), calling the new admin-only
+// POST /api/admin/accounts/[id]/setup-isp-credit route. On success,
+// calls onSubmitted() which the caller wires to loadAccounts() (spec:
+// "after success, refresh that customer's row").
+function SetupIspCreditModal({ account, onClose, onSubmitted }) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleConfirm() {
+    setError("");
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/admin/accounts/${account.id}/setup-isp-credit`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Unable to complete this action.");
+        return;
+      }
+      onSubmitted(
+        data.creditNewlyApplied
+          ? "ISP activated and $71.28 credited."
+          : "ISP activated. $71.28 credit was already applied previously."
+      );
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1E1E1E] p-6"
+      >
+        <h3 className="mb-1 text-base font-bold text-white">Setup ISP + $71.28</h3>
+        <p className="mb-4 text-xs text-[#B0B0B0]">
+          Setup this customer’s ISP and add $71.28 to their account?{" "}
+          <span className="font-semibold text-white">{account.name || account.email}</span> (
+          {account.email}).
+        </p>
+        {error && <div className="mb-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>}
+        <div className="flex gap-2">
+          <GhostButton type="button" onClick={onClose} className="flex-1">
+            Cancel
+          </GhostButton>
+          <AccentButton type="button" onClick={handleConfirm} disabled={submitting} className="flex-1">
+            {submitting ? "Processing…" : "Confirm"}
           </AccentButton>
         </div>
       </div>
@@ -575,6 +639,8 @@ function AccountRow({
   onOpenAddNode,
   onOpenSetPassword,
   setPasswordMessage,
+  onOpenSetupIspCredit,
+  setupIspCreditMessage,
 }) {
   const [emailDraft, setEmailDraft] = useState(account.email);
   const [editingEmail, setEditingEmail] = useState(false);
@@ -853,11 +919,28 @@ function AccountRow({
                   Set/Reset Password
                 </span>
               </button>
+              {/* ADMIN-ONE-CLICK-ISP-CREDIT batch: compact one-click
+                  action button (spec section M -- "Setup ISP + $71.28").
+                  Opens the confirmation dialog (SetupIspCreditModal)
+                  rather than firing the mutation directly, per spec
+                  section R. */}
+              <button
+                onClick={() => onOpenSetupIspCredit(account)}
+                aria-label={`Setup ISP and add $71.28 for ${account.email}`}
+                title="Setup ISP + $71.28"
+                className="group relative flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200"
+              >
+                <Zap className="h-3.5 w-3.5" />
+                <span className="pointer-events-none absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                  Setup ISP + $71.28
+                </span>
+              </button>
             </>
           )}
         </div>
         {unlockMessage && <div className="mt-1 text-[10px] text-green-400">{unlockMessage}</div>}
         {setPasswordMessage && <div className="mt-1 text-[10px] text-green-400">{setPasswordMessage}</div>}
+        {setupIspCreditMessage && <div className="mt-1 text-[10px] text-green-400">{setupIspCreditMessage}</div>}
       </td>
     </tr>
   );
@@ -960,6 +1043,10 @@ export default function AdminUsersPage() {
   // BroadcastModal/CreateUserModal.
   const [balanceModalAccount, setBalanceModalAccount] = useState(null);
   const [unlockModalAccount, setUnlockModalAccount] = useState(null);
+  // ADMIN-ONE-CLICK-ISP-CREDIT batch: same lifted-to-page-root modal
+  // pattern as balanceModalAccount/unlockModalAccount above.
+  const [setupIspCreditAccount, setSetupIspCreditAccount] = useState(null);
+  const [setupIspCreditMessages, setSetupIspCreditMessages] = useState({});
   // Same lifted-to-page-root pattern for the new Node popups -- never
   // rendered as a direct child of a <tr>/<table>/<tbody>.
   const [editNodesAccount, setEditNodesAccount] = useState(null);
@@ -1324,6 +1411,8 @@ export default function AdminUsersPage() {
                   onOpenAddNode={setAddNodeAccount}
                   onOpenSetPassword={setSetPasswordModalAccount}
                   setPasswordMessage={setPasswordMessages[account.id]}
+                  onOpenSetupIspCredit={setSetupIspCreditAccount}
+                  setupIspCreditMessage={setupIspCreditMessages[account.id]}
                 />
               ))}
               {adminRows.map((account) => (
@@ -1422,6 +1511,18 @@ export default function AdminUsersPage() {
             const targetId = unlockModalAccount.id;
             setUnlockModalAccount(null);
             setUnlockMessages((prev) => ({ ...prev, [targetId]: message || "Modules unlocked." }));
+            loadAccounts();
+          }}
+        />
+      )}
+      {setupIspCreditAccount && (
+        <SetupIspCreditModal
+          account={setupIspCreditAccount}
+          onClose={() => setSetupIspCreditAccount(null)}
+          onSubmitted={(message) => {
+            const targetId = setupIspCreditAccount.id;
+            setSetupIspCreditAccount(null);
+            setSetupIspCreditMessages((prev) => ({ ...prev, [targetId]: message }));
             loadAccounts();
           }}
         />

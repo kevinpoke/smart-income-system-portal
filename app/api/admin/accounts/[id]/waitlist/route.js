@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
 import { generateId } from "@/lib/auth-crypto";
+import { cancelWaitlistSelectionMessage } from "@/lib/supportAutomation";
 
 // Admin-portal batch (Waitlist edit): admin-only editable Waitlist
 // Yes/No toggle for the User Management table.
@@ -74,6 +75,16 @@ export async function POST(request, { params }) {
   db.exec("BEGIN");
   try {
     db.prepare(`UPDATE accounts SET waitlist_joined_at = ? WHERE id = ?`).run(newValue, targetId);
+    // WAITLIST-48H-MESSAGE batch (spec section G, "preferred behavior"):
+    // Yes -> No is the one place this app removes a customer from the
+    // waitlist before their 48h message may have gone out -- cancel any
+    // still-pending scheduled message for this account so it can never
+    // be delivered to someone no longer on the waitlist. Safe/idempotent
+    // no-op if there's nothing scheduled, already delivered, or already
+    // cancelled (see cancelWaitlistSelectionMessage()).
+    if (body.joined === false) {
+      cancelWaitlistSelectionMessage(db, targetId);
+    }
     db.prepare(
       `INSERT INTO audit_log (id, admin_account_id, target_account_id, action, before_json, after_json, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`

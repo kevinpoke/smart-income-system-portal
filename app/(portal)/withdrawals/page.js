@@ -118,13 +118,27 @@ export default function WithdrawalsPage() {
           title="Withdrawals"
           subtitle="Add your bank information to receive your earnings."
         />
-        <LocationRequiredCard
-          body={
-            module10Locked
-              ? "Please complete watching Module 10 to unlock this section."
-              : "Complete your ISP Setup to unlock Withdrawals."
-          }
-        />
+        {/* WITHDRAWALS-MODULE10-LOCK-COPY batch: this Module-10-specific
+            branch is the ONLY lock reason that gets the new title/body/
+            button copy -- the ELSE branch (ISP setup not complete) is
+            completely untouched (still "Location Required" / "Complete
+            your ISP Setup to unlock Withdrawals." / "Complete ISP Setup"
+            -> /isp-setup), per spec section K ("preserve other
+            withdrawal lock reasons"). `module10Locked` here is the same
+            boolean GET /api/withdrawals/bank already computed from
+            hasWithdrawalsModule10Access() (real completed_at only --
+            never modules_unlocked/"Unlock All"), so Admin Unlock All
+            alone can never flip this branch. */}
+        {module10Locked ? (
+          <LocationRequiredCard
+            title="Complete Module 10 to Unlock"
+            body="Please complete watching Module 10 to unlock this section."
+            ctaLabel="Complete Module 10"
+            ctaHref="/modules"
+          />
+        ) : (
+          <LocationRequiredCard body="Complete your ISP Setup to unlock Withdrawals." />
+        )}
       </div>
     );
   }

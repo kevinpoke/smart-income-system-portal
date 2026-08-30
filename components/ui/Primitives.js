@@ -120,10 +120,25 @@ export function FadeIn({ children, delay = 0, className = "" }) {
 // page and the Nodes page (per spec: "Show the same 'Location Required'
 // locked-state popup/card used in the Payouts section"). `title`/`body`
 // are overridable so each page can phrase the copy appropriately while
-// keeping the exact same visual card and CTA.
+// keeping the exact same visual card.
+//
+// WITHDRAWALS-MODULE10-LOCK-COPY batch: the CTA button/destination are
+// now ALSO overridable (`ctaLabel`/`ctaHref`), defaulting to the
+// original "Complete ISP Setup" -> /isp-setup values so every existing
+// caller (Payouts, Nodes, and the Withdrawals ISP-not-complete case) is
+// completely unaffected. The ONLY caller that overrides these is the
+// Withdrawals page's Module-10-specifically-locked state (see
+// app/(portal)/withdrawals/page.js), which passes
+// ctaLabel="Complete Module 10" + ctaHref="/modules" (the existing,
+// canonical Modules route -- see app/(portal)/modules/page.js -- no new
+// page was created). Every OTHER lock reason on this card (ISP setup not
+// complete/location missing) is completely untouched and still renders
+// the original "Complete ISP Setup" button pointing at /isp-setup.
 export function LocationRequiredCard({
   title = "Location Required",
   body = "Complete your ISP Setup to continue.",
+  ctaLabel = "Complete ISP Setup",
+  ctaHref = "/isp-setup",
 }) {
   return (
     <FadeIn>
@@ -133,10 +148,10 @@ export function LocationRequiredCard({
           <div className="text-xs text-[#B0B0B0]">{body}</div>
         </div>
         <Link
-          href="/isp-setup"
+          href={ctaHref}
           className="rounded-xl bg-[#32B5FF] px-4 py-2.5 text-sm font-semibold text-[#06121a] shadow-[0_0_20px_rgba(50,181,255,0.35)] hover:bg-[#4dc0ff]"
         >
-          Complete ISP Setup
+          {ctaLabel}
         </Link>
       </GlassCard>
     </FadeIn>
