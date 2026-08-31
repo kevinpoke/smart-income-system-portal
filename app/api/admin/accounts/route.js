@@ -65,7 +65,7 @@ const ACCOUNT_SELECT_COLUMNS = `id, email, name, first_name, last_name, must_cha
               first_login_at, last_login_at, waitlist_joined_at,
               isp_status, isp_submitted_at, isp_approved_at, user_authorized_at, node_connected_at,
               isp_city, isp_state,
-              current_balance_cents, lifetime_earnings_cents, modules_unlocked, wifi_enabled`;
+              current_balance_cents, lifetime_earnings_cents, modules_unlocked, wifi_enabled, auth_mode`;
 
 // Primary Node tier per the PRIMARY NODE RULE (lib/ownedNodes.js): the
 // earliest-created Node for an account, i.e. the row with the lowest
@@ -353,6 +353,14 @@ export async function GET(request) {
         lastName: a.last_name,
         role: a.role,
         accountStatus: a.account_status,
+        // PASSWORDLESS-CUSTOMER-LOGIN batch: durable legacy/new auth
+        // state (spec Part 2/3), exposed here ONLY as the plain mode
+        // label ('legacy_password' | 'login_link') -- never a login
+        // URL/token/signature. The User Management "Login" column and
+        // "Copy/Reset Login Link" Actions gate on THIS field, not on
+        // role==='customer' alone (every legacy customer is also
+        // role==='customer').
+        authMode: a.auth_mode,
         status: a.account_status === "disabled"
           ? "Disabled"
           : a.must_change_password

@@ -5,6 +5,7 @@ import { GhostButton, AccentButton, Badge } from "@/components/ui/Primitives";
 import NodeTierBadge from "@/components/ui/NodeTierBadge";
 import { NODE_TIERS, TIER_KEYS, tierKeyToBridgeDisplayName } from "@/lib/nodeTiers";
 import { formatCurrency, centsToDollars } from "@/lib/mockData";
+import { formatAdminDate } from "@/lib/adminTime";
 import { Trash2 } from "lucide-react";
 
 // Edit Bridge popup: lists every owned Bridge for one customer account,
@@ -155,7 +156,7 @@ export function EditNodePopup({ account, onClose, onChanged }) {
                     <div>
                       <div className="font-mono text-xs text-white">#{node.displayNodeId}</div>
                       <div className="text-[10px] text-[#707070]">
-                        Started {new Date(node.createdAt).toLocaleDateString()}
+                        Started {formatAdminDate(node.createdAt)}
                         {node.isPrimary ? " · Primary" : ""}
                       </div>
                     </div>

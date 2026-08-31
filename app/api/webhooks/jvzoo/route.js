@@ -225,11 +225,19 @@ function createNewCustomer({ db, email, firstName, lastName, transactionId, prod
 
   try {
     db.prepare(
+      // PASSWORDLESS-CUSTOMER-LOGIN batch: this is the ONLY account-
+      // creation path in the codebase that sets auth_mode='login_link'
+      // explicitly. Every other creation path (admin "Create User",
+      // and any pre-existing row from before this column existed) keeps
+      // the column's DEFAULT 'legacy_password' -- see lib/db.js's
+      // ACCOUNT_COLUMNS auth_mode entry for the full policy. This is the
+      // durable, explicit state spec Part 2/3 requires; it is never
+      // inferred later from created_at or any other proxy.
       `INSERT INTO accounts
          (id, email, name, first_name, last_name, password_hash, password_salt,
           must_change_password, role, account_status, created_at,
-          purchase_network, external_order_id, product_id, purchased_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'customer', 'active', ?, 'jvzoo', ?, ?, ?)`
+          purchase_network, external_order_id, product_id, purchased_at, auth_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'customer', 'active', ?, 'jvzoo', ?, ?, ?, 'login_link')`
     ).run(
       id,
       email,
@@ -258,12 +266,21 @@ function createNewCustomer({ db, email, firstName, lastName, transactionId, prod
   // set by the real login route on the customer's actual first
   // successful login (unchanged, pre-existing behavior).
 
-  // tempPassword exists only in this function's local scope: hashed
-  // immediately above, then handed to the mailer below, then goes out of
-  // scope when this function returns. It is never stored, logged, or
-  // returned to JVZoo -- see lib/onboardingMailer.js and
-  // lib/tempPassword.js.
-  return sendWelcomeEmail({ to: email, tempPassword }).then((mailResult) =>
+  // tempPassword exists only in this function's local scope, hashed
+  // immediately above so accounts.password_hash/password_salt (kept
+  // for backwards-compat per spec Part 7, not removed) are always
+  // populated even though customer login is now fully passwordless.
+  // It is never stored/logged/emailed/returned to JVZoo.
+  //
+  // PASSWORDLESS-CUSTOMER-LOGIN batch: the onboarding email now
+  // carries this customer's own unique signed login link instead of a
+  // temporary password (spec Part 9 -- "automatically generate their
+  // valid unique login URL ... no admin action required"). login_link_
+  // version is always 1 for a brand-new account (the DEFAULT applied
+  // above), passed explicitly rather than re-read from the DB so this
+  // never risks racing a version bump that could only happen after
+  // the account already exists.
+  return sendWelcomeEmail({ to: email, accountId: id, loginLinkVersion: 1 }).then((mailResult) =>
     NextResponse.json({
       ok: true,
       processed: true,

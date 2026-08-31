@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { GlassCard, Badge, GhostButton } from "@/components/ui/Primitives";
 import Avatar from "@/components/ui/Avatar";
+import { formatAdminDateTime } from "@/lib/adminTime";
 import {
   Plus,
   Send,
@@ -21,9 +22,14 @@ import clsx from "clsx";
 import LinkifiedText from "@/components/support/LinkifiedText";
 
 function formatTime(iso) {
+  // ADMIN-PORTAL-TIME-FORMATTING batch: Admin Support Chat continues to
+  // show message timestamps (unlike customer Support, which shows
+  // none -- see app/(portal)/support/page.js), now rendered in the
+  // canonical Pacific timezone with no seconds (spec Parts 21/24)
+  // instead of the previous browser/server-local toLocaleString().
   if (!iso) return "";
   try {
-    return new Date(iso).toLocaleString();
+    return formatAdminDateTime(iso);
   } catch {
     return "";
   }

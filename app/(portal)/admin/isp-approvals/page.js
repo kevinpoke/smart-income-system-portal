@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
-import { formatCountdown, ISP_AUTO_APPROVE_AFTER_MS } from "@/lib/mockData";
+import { ISP_AUTO_APPROVE_AFTER_MS } from "@/lib/mockData";
+import { formatAdminDateTime, formatAdminCountdown } from "@/lib/adminTime";
 import {
   ISP_ACTION,
   computeIspAction,
@@ -294,10 +295,10 @@ export default function AdminIspApprovalsPage() {
                     <tr key={a.id} className="border-b border-white/5 text-[#B0B0B0]">
                       <td className="px-4 py-3 font-mono text-xs text-white">{a.email}</td>
                       <td className="px-4 py-3 text-xs">
-                        {a.ispSubmittedAt ? new Date(a.ispSubmittedAt).toLocaleString() : "—"}
+                        {a.ispSubmittedAt ? formatAdminDateTime(a.ispSubmittedAt) : "—"}
                       </td>
                       <td className="px-4 py-3 font-mono text-xs">
-                        {remaining != null ? formatCountdown(remaining) : "—"}
+                        {remaining != null ? formatAdminCountdown(remaining) : "—"}
                       </td>
                       <td className="px-4 py-3">
                         {awaitingConfirmation ? (

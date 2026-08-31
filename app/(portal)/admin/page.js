@@ -4,12 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "@/lib/useAccount";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
-import { formatCurrency, centsToDollars, formatCountdown } from "@/lib/mockData";
+import { formatCurrency, centsToDollars } from "@/lib/mockData";
+import { formatAdminDate, formatAdminLastLogin, formatAdminCountdown } from "@/lib/adminTime";
 import { GlassCard, Badge, AccentButton, GhostButton } from "@/components/ui/Primitives";
 import NodeTierBadge from "@/components/ui/NodeTierBadge";
 import LocationCell from "@/components/admin/LocationCell";
 import UpsellCell from "@/components/admin/UpsellCell";
 import WaitlistCell from "@/components/admin/WaitlistCell";
+import LoginLinkCell from "@/components/admin/LoginLinkCell";
+import ResetLoginLinkModal from "@/components/admin/ResetLoginLinkModal";
 import { EditNodePopup, AddNodePopup } from "@/components/admin/NodeModals";
 import {
   Lock,
@@ -28,6 +31,8 @@ import {
   Plus,
   KeyRound,
   Zap,
+  RotateCcw,
+  Mail,
 } from "lucide-react";
 
 // Matches the MIN_PASSWORD_LENGTH policy already enforced server-side in
@@ -593,8 +598,10 @@ function CreateUserModal({ onClose, onCreated }) {
 }
 
 function formatLastLogin(iso) {
-  if (!iso) return "Never";
-  return new Date(iso).toLocaleString();
+  // ADMIN-PORTAL-TIME-FORMATTING batch: replaced the old browser/
+  // server-local `new Date(iso).toLocaleString()` with the canonical
+  // Pacific, no-seconds admin formatter (spec Parts 20-22).
+  return formatAdminLastLogin(iso);
 }
 
 function WithdrawCell({ account, now }) {
@@ -605,7 +612,12 @@ function WithdrawCell({ account, now }) {
     return <span className="text-xs text-[#707070]">—</span>;
   }
   const remaining = Math.max(0, new Date(account.payoutTargetAt).getTime() - now);
-  return <span className="font-mono text-xs text-white">{formatCountdown(remaining)}</span>;
+  // ADMIN-PORTAL-TIME-FORMATTING batch: this Withdraw countdown is an
+  // ADMIN PORTAL display (User Management table) -- no seconds shown
+  // (spec Part 23), while the underlying `remaining` ms value above
+  // is still computed to full accuracy every tick via useLiveClock,
+  // exactly as before.
+  return <span className="font-mono text-xs text-white">{formatAdminCountdown(remaining)}</span>;
 }
 
 // MODULE-10-SUPPORT-STATUS batch: compact badge for the new "Mod 10"
@@ -641,6 +653,7 @@ function AccountRow({
   setPasswordMessage,
   onOpenSetupIspCredit,
   setupIspCreditMessage,
+  onOpenResetLoginLink,
 }) {
   const [emailDraft, setEmailDraft] = useState(account.email);
   const [editingEmail, setEditingEmail] = useState(false);
@@ -784,6 +797,24 @@ function AccountRow({
         {emailError && <div className="mt-1 text-[10px] text-red-400">{emailError}</div>}
       </td>
       <td className="px-4 py-3">
+        {/* PASSWORDLESS-CUSTOMER-LOGIN batch: new "Login" column, placed
+            immediately after "User" and before "Status" per spec Part
+            11 (layout: User | Login | Status | ...). Gated on
+            account.authMode === 'login_link' -- NOT role === 'customer'
+            alone, since every pre-existing (legacy) customer is also
+            role === 'customer'. Legacy customers and admin rows both
+            render the same inert "Legacy"/"—" placeholder and never
+            get a Copy control (spec Part 11: "Do NOT silently generate
+            a link for them"). */}
+        {account.authMode === "login_link" ? (
+          <LoginLinkCell accountId={account.id} />
+        ) : account.role === "customer" ? (
+          <span className="text-xs text-[#707070]">Legacy</span>
+        ) : (
+          <span className="text-xs text-[#707070]">—</span>
+        )}
+      </td>
+      <td className="px-4 py-3">
         <Badge tone={disabled ? "danger" : "success"}>{disabled ? "Disabled" : "Active"}</Badge>
       </td>
       <td className="px-4 py-3">
@@ -824,7 +855,7 @@ function AccountRow({
       <td className="px-4 py-3 font-mono text-xs text-white">
         {formatCurrency(centsToDollars(account.currentBalanceCents))}
       </td>
-      <td className="px-4 py-3 text-xs">{new Date(account.createdAt).toLocaleDateString()}</td>
+      <td className="px-4 py-3 text-xs">{formatAdminDate(account.createdAt)}</td>
       <td className="px-4 py-3 text-xs">{formatLastLogin(account.lastLoginAt)}</td>
       <td className="px-4 py-3">
         <WithdrawCell account={account} now={now} />
@@ -935,6 +966,50 @@ function AccountRow({
                   Setup ISP + $71.28
                 </span>
               </button>
+              {/* PASSWORDLESS-CUSTOMER-LOGIN batch: compact "Reset
+                  Login Link" action (spec Part 13/14) added to the
+                  existing Actions cell alongside every other
+                  per-customer action button, WITHOUT removing any of
+                  them (Disable/Enable, Add Balance, Unlock Modules,
+                  Set/Reset Password, Setup ISP + $71.28 above are all
+                  unchanged). Opens the shared confirmation modal
+                  rather than firing the mutation directly, matching
+                  the existing SetupIspCreditModal confirm-first
+                  pattern. Gated on authMode === 'login_link' -- NOT
+                  role === 'customer' alone -- so legacy_password
+                  customers never see reset-link controls (spec Part
+                  15: "do not show reset-link controls unless
+                  explicitly migrated in a future feature"). */}
+              {account.authMode === "login_link" && (
+                <>
+                  <button
+                    onClick={() => onOpenResetLoginLink(account, false)}
+                    aria-label={`Reset login link for ${account.email}`}
+                    title="Reset Login Link"
+                    className="group relative flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/15 text-orange-300 hover:bg-orange-500/25 hover:text-orange-200"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    <span className="pointer-events-none absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                      Reset Login Link
+                    </span>
+                  </button>
+                  {/* Optional (spec Part 15): "Reset & Send Login Email"
+                      -- a SEPARATE button from plain Reset above, so plain
+                      "Copy Login Link"/"Reset Login Link" can never
+                      accidentally trigger an email send. */}
+                  <button
+                    onClick={() => onOpenResetLoginLink(account, true)}
+                    aria-label={`Reset login link and send login email for ${account.email}`}
+                    title="Reset & Send Login Email"
+                    className="group relative flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/15 text-sky-300 hover:bg-sky-500/25 hover:text-sky-200"
+                  >
+                    <Mail className="h-3.5 w-3.5" />
+                    <span className="pointer-events-none absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                      Reset &amp; Send Login Email
+                    </span>
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>
@@ -1054,6 +1129,11 @@ export default function AdminUsersPage() {
   // Same pattern again for the "Set Password" action's modal.
   const [setPasswordModalAccount, setSetPasswordModalAccount] = useState(null);
   const [setPasswordMessages, setSetPasswordMessages] = useState({});
+  // PASSWORDLESS-CUSTOMER-LOGIN batch: same lifted-to-page-root pattern
+  // for the "Reset Login Link" / "Reset & Send Login Email" confirm
+  // modal -- `resetLoginLinkTarget` holds { account, sendEmail } so a
+  // single modal component + state pair serves both actions.
+  const [resetLoginLinkTarget, setResetLoginLinkTarget] = useState(null);
   // Per-account "Modules unlocked." confirmation text shown inline in
   // that account's row -- keyed by account id so each row keeps its own
   // message independently, matching the previous per-row local state.
@@ -1262,7 +1342,7 @@ export default function AdminUsersPage() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1550px] text-sm">
+          <table className="w-full min-w-[1680px] text-sm">
             <thead>
               <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#707070]">
                 <th className="w-8 px-2 py-3">
@@ -1279,6 +1359,7 @@ export default function AdminUsersPage() {
                   />
                 </th>
                 <th className="px-4 py-3">User</th>
+                <th className="px-4 py-3">Login</th>
                 <th className="px-4 py-3">
                   <SortableHeader
                     column="status"
@@ -1413,6 +1494,7 @@ export default function AdminUsersPage() {
                   setPasswordMessage={setPasswordMessages[account.id]}
                   onOpenSetupIspCredit={setSetupIspCreditAccount}
                   setupIspCreditMessage={setupIspCreditMessages[account.id]}
+                  onOpenResetLoginLink={(acct, sendEmail) => setResetLoginLinkTarget({ account: acct, sendEmail })}
                 />
               ))}
               {adminRows.map((account) => (
@@ -1577,6 +1659,14 @@ export default function AdminUsersPage() {
             }));
             loadAccounts();
           }}
+        />
+      )}
+      {resetLoginLinkTarget && (
+        <ResetLoginLinkModal
+          account={resetLoginLinkTarget.account}
+          sendEmail={resetLoginLinkTarget.sendEmail}
+          onClose={() => setResetLoginLinkTarget(null)}
+          onReset={loadAccounts}
         />
       )}
     </div>

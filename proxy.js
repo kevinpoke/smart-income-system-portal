@@ -19,7 +19,13 @@ import { getAccountByToken } from "@/lib/authz";
 const COOKIE_NAME = "sa_session";
 
 const PUBLIC_PATHS = ["/login"];
-const PUBLIC_PREFIXES = ["/api/auth", "/api/webhooks", "/_next", "/favicon.ico"];
+// PASSWORDLESS-CUSTOMER-LOGIN batch: /l/<token> (the unique login-link
+// landing page) must be reachable with NO session cookie at all --
+// that's the whole point of the flow (spec Part 1: "customer opens
+// their unique login link" before they are authenticated). /api/auth
+// was already public (covers the new /api/auth/login-link/verify
+// route too, no change needed there).
+const PUBLIC_PREFIXES = ["/api/auth", "/api/webhooks", "/_next", "/favicon.ico", "/l/"];
 
 export function proxy(request) {
   const { pathname } = request.nextUrl;
