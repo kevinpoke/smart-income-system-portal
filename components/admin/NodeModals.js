@@ -301,8 +301,12 @@ export function AddNodePopup({ account, onClose, onAdded }) {
       const data = await res.json();
       if (res.ok) {
         setSpecialBridges(data.bridges || []);
-        // Default-select the first still-available bridge, if any.
-        const firstAvailable = (data.bridges || []).find((b) => !b.assignedToAccountId);
+        // Default-select the first bridge this account doesn't already
+        // own -- REUSABLE-SPECIAL-BRIDGES batch: "already assigned" is
+        // now scoped to THIS account only, never a global flag, so a
+        // bridge already owned by a different customer is still a
+        // valid default pick here.
+        const firstAvailable = (data.bridges || []).find((b) => !b.alreadyOwnedByThisAccount);
         setSelectedBridgeId(firstAvailable?.id ?? null);
       }
     } catch {
@@ -441,7 +445,15 @@ export function AddNodePopup({ account, onClose, onAdded }) {
             ) : (
               specialBridges.map((b) => {
                 const selected = selectedBridgeId === b.id;
-                const taken = Boolean(b.assignedToAccountId);
+                // REUSABLE-SPECIAL-BRIDGES batch: `taken` now means "THIS
+                // account already actively owns it" -- never "some other
+                // account owns it". A special Bridge already owned by a
+                // DIFFERENT customer must remain freely selectable here
+                // (spec: "A special Bridge should remain available for
+                // assignment even when another customer already has
+                // it... Do NOT label it globally: Assigned / Unavailable
+                // / Taken").
+                const taken = Boolean(b.alreadyOwnedByThisAccount);
                 return (
                   <label
                     key={b.id}
@@ -468,7 +480,7 @@ export function AddNodePopup({ account, onClose, onAdded }) {
                       </span>
                       {taken && (
                         <Badge tone="default" className="px-1.5 py-0 text-[9px]">
-                          Assigned{b.assignedToAccountEmail ? ` · ${b.assignedToAccountEmail}` : ""}
+                          Already Assigned
                         </Badge>
                       )}
                     </span>

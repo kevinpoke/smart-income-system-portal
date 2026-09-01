@@ -3,30 +3,26 @@ import { getDb } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
 import { generateId } from "@/lib/auth-crypto";
-import { assignSpecialBridge, listSpecialBridgeAssignments } from "@/lib/ownedNodes";
+import { assignSpecialBridge, listSpecialBridgeAssignmentsForAccount } from "@/lib/ownedNodes";
 import { SPECIAL_BRIDGE_CATALOG, getSpecialBridgeById } from "@/lib/specialBridges";
 
-// Admin-only: lists the four EXACT special Bridges (spec section 13/14)
-// with their base estimate and current assignment status, for the admin
-// Add Bridge popup. Never exposes anything a customer route could reuse
-// to self-assign (requireAdmin() below).
-export async function GET() {
+// REUSABLE-SPECIAL-BRIDGES batch: lists the four EXACT special Bridges
+// with their base estimate and whether THIS account (targetId) already
+// actively owns each one. Special Bridges have NO global "taken by
+// someone else" state -- a bridge already owned by a DIFFERENT account
+// must still show as freely assignable here; "already assigned" is only
+// ever reported relative to the account currently being edited (spec:
+// "For the CURRENT selected customer only ... prevent accidental
+// duplicate assignment").
+export async function GET(request, { params }) {
   const guard = await requireAdmin();
   if (!guard.account) {
     return NextResponse.json({ error: guard.errorMessage }, { status: guard.errorStatus });
   }
 
+  const { id: targetId } = await params;
   const db = getDb();
-  const assignments = listSpecialBridgeAssignments(db);
-  const accountIds = Object.values(assignments);
-  let accountsById = {};
-  if (accountIds.length > 0) {
-    const placeholders = accountIds.map(() => "?").join(",");
-    const rows = db
-      .prepare(`SELECT id, email FROM accounts WHERE id IN (${placeholders})`)
-      .all(...accountIds);
-    accountsById = Object.fromEntries(rows.map((r) => [r.id, r.email]));
-  }
+  const ownedByThisAccount = listSpecialBridgeAssignmentsForAccount(db, targetId);
 
   return NextResponse.json({
     ok: true,
@@ -34,8 +30,10 @@ export async function GET() {
       id: b.id,
       displayName: b.displayName,
       baseEstMonthlyCents: b.baseEstMonthlyCents,
-      assignedToAccountId: assignments[b.id] || null,
-      assignedToAccountEmail: assignments[b.id] ? accountsById[assignments[b.id]] || null : null,
+      // Renamed from the old global `assignedToAccountId`/
+      // `assignedToAccountEmail` fields -- this is now scoped to "does
+      // THIS account already own it", never a global flag.
+      alreadyOwnedByThisAccount: ownedByThisAccount.has(b.id),
     })),
   });
 }
@@ -43,9 +41,11 @@ export async function GET() {
 // Admin-only: assigns ONE of the four EXACT special Bridges to a
 // customer account. SERVER-AUTHORIZED (requireAdmin()) -- there is no
 // customer-facing route that can reach this. Rejects if the bridge id
-// is unrecognized, or if it is already actively assigned to any account
-// (spec section 16 -- each of the four ids is unique, one active owner
-// at a time).
+// is unrecognized, or if THIS SAME account already actively owns it
+// (REUSABLE-SPECIAL-BRIDGES batch: there is no global "only one active
+// owner" restriction anymore -- any number of DIFFERENT accounts may
+// simultaneously actively own the same special Bridge id; only a
+// duplicate assignment to the SAME account is rejected).
 export async function POST(request, { params }) {
   if (!isSameOrigin(request)) {
     return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
@@ -93,7 +93,7 @@ export async function POST(request, { params }) {
       db.exec("ROLLBACK");
       if (result.reason === "already_assigned") {
         return NextResponse.json(
-          { error: `${bridge.displayName} #${bridge.id} is already assigned to another account.` },
+          { error: `${bridge.displayName} #${bridge.id} is already assigned to this account.` },
           { status: 409 }
         );
       }
@@ -122,13 +122,14 @@ export async function POST(request, { params }) {
   } catch (err) {
     db.exec("ROLLBACK");
     // A concurrent request winning the DB's own partial UNIQUE index
-    // (idx_owned_nodes_special_bridge_active) surfaces here as a thrown
-    // constraint-violation error rather than assignSpecialBridge()'s own
-    // pre-check catching it -- treat it identically to "already_assigned"
-    // rather than a generic 500, since that's exactly what happened.
+    // (idx_owned_nodes_special_bridge_per_account, scoped to (account_id,
+    // special_bridge_id)) surfaces here as a thrown constraint-violation
+    // error rather than assignSpecialBridge()'s own pre-check catching
+    // it -- treat it identically to "already_assigned" rather than a
+    // generic 500, since that's exactly what happened.
     if (String(err?.message || "").toLowerCase().includes("unique")) {
       return NextResponse.json(
-        { error: `${bridge.displayName} #${bridge.id} is already assigned to another account.` },
+        { error: `${bridge.displayName} #${bridge.id} is already assigned to this account.` },
         { status: 409 }
       );
     }
