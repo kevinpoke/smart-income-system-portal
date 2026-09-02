@@ -33,6 +33,7 @@ import {
   Zap,
   RotateCcw,
   Mail,
+  BanknoteX,
 } from "lucide-react";
 
 // Matches the MIN_PASSWORD_LENGTH policy already enforced server-side in
@@ -355,6 +356,65 @@ function SetPasswordModal({ account, onClose, onSubmitted }) {
   );
 }
 
+// ADMIN-REMOVE-BANK-INFO batch: compact confirmation modal for the new
+// "Remove Bank Information" admin action (spec section B), mirroring
+// UnlockAllModal/SetPasswordModal's exact same modal chrome/pattern.
+// Title/body copy below are EXACT per spec (curly apostrophe in the
+// title). Calls the new admin-only POST
+// /api/admin/accounts/[id]/remove-bank route.
+function RemoveBankInfoModal({ account, onClose, onSubmitted }) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleConfirm() {
+    setError("");
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/admin/accounts/${account.id}/remove-bank`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Unable to remove bank information.");
+        return;
+      }
+      onSubmitted(data.message || "Bank information removed.");
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1E1E1E] p-6"
+      >
+        <h3 className="mb-1 text-base font-bold text-white">
+          Remove this customer’s bank information?
+        </h3>
+        <p className="mb-4 text-xs text-[#B0B0B0]">
+          This will remove the bank information currently saved to this account. It will not
+          remove their earnings, payouts, or withdrawal history.
+        </p>
+        <p className="mb-4 text-xs font-mono text-[#707070]">{account.email}</p>
+        {error && <div className="mb-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>}
+        <div className="flex gap-2">
+          <GhostButton type="button" onClick={onClose} className="flex-1">
+            Cancel
+          </GhostButton>
+          <AccentButton type="button" onClick={handleConfirm} disabled={submitting} className="flex-1">
+            {submitting ? "Removing…" : "Remove Bank Information"}
+          </AccentButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Portal reliability pass: broadcast "Send Message" confirmation modal.
 function BroadcastModal({ recipientIds, onClose, onSubmitted }) {
   const [message, setMessage] = useState("");
@@ -654,6 +714,8 @@ function AccountRow({
   onOpenSetupIspCredit,
   setupIspCreditMessage,
   onOpenResetLoginLink,
+  onOpenRemoveBank,
+  removeBankMessage,
 }) {
   const [emailDraft, setEmailDraft] = useState(account.email);
   const [editingEmail, setEditingEmail] = useState(false);
@@ -1010,12 +1072,34 @@ function AccountRow({
                   </button>
                 </>
               )}
+              {/* ADMIN-REMOVE-BANK-INFO batch: compact action button
+                  (spec section B), added alongside every other
+                  per-customer action button without removing any of
+                  them. Always visible for customer rows regardless of
+                  authMode or whether bank info is currently on file --
+                  clicking with no bank info saved is a harmless no-op
+                  confirmed server-side (see the route's comment). Opens
+                  the confirmation modal rather than firing the mutation
+                  directly, matching every other confirm-first action in
+                  this table. */}
+              <button
+                onClick={() => onOpenRemoveBank(account)}
+                aria-label={`Remove bank information for ${account.email}`}
+                title="Remove Bank Information"
+                className="group relative flex h-8 w-8 items-center justify-center rounded-lg bg-rose-500/15 text-rose-300 hover:bg-rose-500/25 hover:text-rose-200"
+              >
+                <BanknoteX className="h-3.5 w-3.5" />
+                <span className="pointer-events-none absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                  Remove Bank Information
+                </span>
+              </button>
             </>
           )}
         </div>
         {unlockMessage && <div className="mt-1 text-[10px] text-green-400">{unlockMessage}</div>}
         {setPasswordMessage && <div className="mt-1 text-[10px] text-green-400">{setPasswordMessage}</div>}
         {setupIspCreditMessage && <div className="mt-1 text-[10px] text-green-400">{setupIspCreditMessage}</div>}
+        {removeBankMessage && <div className="mt-1 text-[10px] text-green-400">{removeBankMessage}</div>}
       </td>
     </tr>
   );
@@ -1129,6 +1213,9 @@ export default function AdminUsersPage() {
   // Same pattern again for the "Set Password" action's modal.
   const [setPasswordModalAccount, setSetPasswordModalAccount] = useState(null);
   const [setPasswordMessages, setSetPasswordMessages] = useState({});
+  // ADMIN-REMOVE-BANK-INFO batch: same lifted-to-page-root modal pattern.
+  const [removeBankModalAccount, setRemoveBankModalAccount] = useState(null);
+  const [removeBankMessages, setRemoveBankMessages] = useState({});
   // PASSWORDLESS-CUSTOMER-LOGIN batch: same lifted-to-page-root pattern
   // for the "Reset Login Link" / "Reset & Send Login Email" confirm
   // modal -- `resetLoginLinkTarget` holds { account, sendEmail } so a
@@ -1495,6 +1582,8 @@ export default function AdminUsersPage() {
                   onOpenSetupIspCredit={setSetupIspCreditAccount}
                   setupIspCreditMessage={setupIspCreditMessages[account.id]}
                   onOpenResetLoginLink={(acct, sendEmail) => setResetLoginLinkTarget({ account: acct, sendEmail })}
+                  onOpenRemoveBank={setRemoveBankModalAccount}
+                  removeBankMessage={removeBankMessages[account.id]}
                 />
               ))}
               {adminRows.map((account) => (
@@ -1512,6 +1601,8 @@ export default function AdminUsersPage() {
                   onOpenAddNode={setAddNodeAccount}
                   onOpenSetPassword={setSetPasswordModalAccount}
                   setPasswordMessage={setPasswordMessages[account.id]}
+                  onOpenRemoveBank={setRemoveBankModalAccount}
+                  removeBankMessage={removeBankMessages[account.id]}
                 />
               ))}
               {accounts.length === 0 && (
@@ -1667,6 +1758,21 @@ export default function AdminUsersPage() {
           sendEmail={resetLoginLinkTarget.sendEmail}
           onClose={() => setResetLoginLinkTarget(null)}
           onReset={loadAccounts}
+        />
+      )}
+      {removeBankModalAccount && (
+        <RemoveBankInfoModal
+          account={removeBankModalAccount}
+          onClose={() => setRemoveBankModalAccount(null)}
+          onSubmitted={(message) => {
+            const targetId = removeBankModalAccount.id;
+            setRemoveBankModalAccount(null);
+            setRemoveBankMessages((prev) => ({
+              ...prev,
+              [targetId]: message || "Bank information removed.",
+            }));
+            loadAccounts();
+          }}
         />
       )}
     </div>

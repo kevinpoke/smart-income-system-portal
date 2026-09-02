@@ -233,7 +233,7 @@ export default function ModulesPage() {
             how to maximize both your earnings and your contribution to the network.
             <br />
             <br />
-            Each module unlocks 16 hours after the previous one. This pacing is designed to
+            Each module unlocks 6 hours after the previous one. This pacing is designed to
             prevent users from rushing through the material and to ensure sufficient time to
             understand each section before continuing. The objective is not simply to complete
             the videos, but to develop a clear understanding of the business model.

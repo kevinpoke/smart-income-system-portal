@@ -6,6 +6,7 @@ import Avatar from "@/components/ui/Avatar";
 import { useAccount } from "@/lib/useAccount";
 import { Send, LifeBuoy, RefreshCw, Image as ImageIcon, X } from "lucide-react";
 import LinkifiedText from "@/components/support/LinkifiedText";
+import { attachFirstInteractionUnlock, playChime } from "@/lib/supportChime";
 
 // NOTE: formatTime() was removed from this page -- the customer Support
 // Chat no longer renders any message timestamp (admin-portal batch,
@@ -68,6 +69,17 @@ export default function SupportPage() {
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
 
+  // SUPPORT-NEW-MESSAGE-SOUND batch: tracks every incoming (non-customer)
+  // message id already seen during this page's active session, using
+  // STABLE message ids (never array length -- edits/deletes/refetches
+  // change counts without any new message existing). Seeded with every
+  // id present at initial load WITHOUT chiming (per spec: "seed the
+  // seen-set with all ids present at initial load without chiming, then
+  // chime only for truly new arrivals after that point") -- only
+  // silentRefresh (the poll) ever chimes.
+  const seenMessageIdsRef = useRef(new Set());
+  const hasSeededRef = useRef(false);
+
   // Portal reliability pass: silent background refresh used by the
   // polling interval below -- unlike `load()`, this never flips `status`
   // back to "loading" (which would blank the thread and disrupt reading/
@@ -80,8 +92,30 @@ export default function SupportPage() {
       const res = await fetch("/api/support/messages", { cache: "no-store" });
       if (!res.ok) throw new Error("failed");
       const data = await res.json();
-      setMessages(data.messages || []);
+      const serverMessages = data.messages || [];
+      setMessages(serverMessages);
       setStatus("ready");
+      // Seed the seen-set once, from the FIRST successful load only --
+      // every id present at initial load is marked seen WITHOUT chiming
+      // (this is historical/already-read content, not a new arrival).
+      // Guarded so a later manual `load()` call (e.g. the Retry button
+      // after a transient error, or the post-send reconciliation call in
+      // handleSend) never re-seeds/resets the set and never causes a
+      // false chime for messages that arrived while status was "error".
+      if (!hasSeededRef.current) {
+        for (const m of serverMessages) {
+          seenMessageIdsRef.current.add(m.id);
+        }
+        hasSeededRef.current = true;
+      } else {
+        // A later full load() (Retry / post-send) should still never
+        // double-chime for messages the poll may not have processed yet
+        // -- mark everything currently on the server as seen here too,
+        // silently, exactly like the poll's own seeding pass.
+        for (const m of serverMessages) {
+          seenMessageIdsRef.current.add(m.id);
+        }
+      }
     } catch {
       setStatus("error");
     }
@@ -92,6 +126,32 @@ export default function SupportPage() {
       const res = await fetch("/api/support/messages", { cache: "no-store" });
       if (!res.ok) return;
       const data = await res.json();
+      const serverMessages = data.messages || [];
+
+      // SUPPORT-NEW-MESSAGE-SOUND batch: chime exactly once per poll tick
+      // that reveals at least one genuinely new incoming (non-customer)
+      // message -- an id never seen before in this session. Never
+      // triggers on: initial load (seeded separately in load() above,
+      // never here), the customer's own sent message (senderRole ===
+      // "customer" is excluded), a repeat poll of an already-seen id, an
+      // edit/delete of an existing message (those don't introduce a new
+      // id), or an attachment re-render of an existing message (same
+      // reason). hasSeededRef guards against a race where silentRefresh's
+      // very first tick could fire before load()'s own seeding commits.
+      if (hasSeededRef.current) {
+        let hasNewIncoming = false;
+        for (const m of serverMessages) {
+          if (seenMessageIdsRef.current.has(m.id)) continue;
+          seenMessageIdsRef.current.add(m.id);
+          if (m.senderRole !== "customer") {
+            hasNewIncoming = true;
+          }
+        }
+        if (hasNewIncoming) {
+          playChime();
+        }
+      }
+
       // Merge rather than blind-replace to avoid visibly discarding an
       // optimistic pending message that hasn't been reconciled by the
       // in-flight send yet, and to avoid any duplicate keys -- server
@@ -99,7 +159,6 @@ export default function SupportPage() {
       // optimistic row is kept if the server list doesn't yet include a
       // message with the same body sent within the last few seconds.
       setMessages((prev) => {
-        const serverMessages = data.messages || [];
         const stillPending = prev.filter(
           (m) =>
             typeof m.id === "string" &&
@@ -111,6 +170,16 @@ export default function SupportPage() {
     } catch {
       // keep the last known messages on a transient network error
     }
+  }, []);
+
+  // SUPPORT-NEW-MESSAGE-SOUND batch: lazily unlocks the shared
+  // AudioContext on the first genuine click/keypress anywhere on this
+  // page (never requests notification/microphone permission, never
+  // shows a prompt) -- see lib/supportChime.js for why this is required
+  // before playChime() can actually produce sound under browser autoplay
+  // restrictions.
+  useEffect(() => {
+    return attachFirstInteractionUnlock();
   }, []);
 
   useEffect(() => {

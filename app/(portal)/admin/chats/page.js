@@ -5,6 +5,12 @@ import { GlassCard, Badge, GhostButton } from "@/components/ui/Primitives";
 import Avatar from "@/components/ui/Avatar";
 import { formatAdminDateTime } from "@/lib/adminTime";
 import {
+  attachFirstInteractionUnlock,
+  playChime,
+  claimChimeForMessageId,
+  seedChimedMessageId,
+} from "@/lib/supportChime";
+import {
   Plus,
   Send,
   ClipboardCheck,
@@ -255,6 +261,14 @@ export default function AdminChatsPage() {
     autosizeTextarea(composerRef.current);
   }, [draft]);
 
+  // SUPPORT-NEW-MESSAGE-SOUND batch: lazily unlocks the shared
+  // AudioContext on the first genuine click/keypress anywhere on this
+  // admin page (never requests notification/microphone permission, never
+  // shows a prompt) -- see lib/supportChime.js.
+  useEffect(() => {
+    return attachFirstInteractionUnlock();
+  }, []);
+
   useEffect(() => {
     return () => {
       if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
@@ -327,9 +341,20 @@ export default function AdminChatsPage() {
       });
       if (!res.ok) throw new Error("failed");
       const data = await res.json();
-      setConversations(data.conversations || []);
+      const nextConversations = data.conversations || [];
+      setConversations(nextConversations);
       if (data.counts) setCounts(data.counts);
       setListStatus("ready");
+      // SUPPORT-NEW-MESSAGE-SOUND batch: every full (non-silent) load of
+      // the conversation list -- initial mount, filter/search/tag/page
+      // change, or a post-action refresh -- seeds each conversation's
+      // current last-message id into the shared claim-set WITHOUT
+      // chiming. Only silentRefreshList (the poll) below ever chimes;
+      // this mirrors the customer Support page's load()-seeds/
+      // silentRefresh()-chimes split exactly.
+      for (const c of nextConversations) {
+        seedChimedMessageId(c.lastMessageId);
+      }
     } catch {
       setListStatus("error");
     }
@@ -356,7 +381,30 @@ export default function AdminChatsPage() {
       });
       if (!res.ok) return;
       const data = await res.json();
-      setConversations(data.conversations || []);
+      const nextConversations = data.conversations || [];
+      // SUPPORT-NEW-MESSAGE-SOUND batch: a NEW customer message -> exactly
+      // one chime, whether the admin is viewing the list or has the
+      // conversation open (shared claimChimeForMessageId de-dup, see
+      // lib/supportChime.js). Never triggers for the admin's own
+      // outgoing message (lastSenderRole !== "customer" is skipped), a
+      // repeat poll of the same last message (claim returns false), or
+      // an edit/delete of the existing last message (those don't change
+      // last_message_id at all).
+      for (const c of nextConversations) {
+        if (c.lastSenderRole === "customer" && claimChimeForMessageId(c.lastMessageId)) {
+          playChime();
+        } else {
+          // Still record it as claimed even when not chime-worthy (e.g.
+          // an admin's own outgoing message becoming the new last
+          // message) so a LATER customer message reuses the same
+          // never-chimed-yet id space correctly -- claimChimeForMessageId
+          // already does this when it returns true; when the sender
+          // isn't "customer" we still want the id marked seen so it's
+          // never mistakenly treated as new later.
+          seedChimedMessageId(c.lastMessageId);
+        }
+      }
+      setConversations(nextConversations);
       if (data.counts) setCounts(data.counts);
     } catch {
       // keep the last known list on a transient network error
@@ -431,6 +479,13 @@ export default function AdminChatsPage() {
         const data = await res.json();
         setDetail(data);
         setDetailStatus("ready");
+        // SUPPORT-NEW-MESSAGE-SOUND batch: seed every message id already
+        // present when a conversation is (re)opened -- initial open,
+        // switching conversations, or a post-send reload -- WITHOUT
+        // chiming. Only silentRefreshDetail below ever chimes.
+        for (const m of data.messages || []) {
+          seedChimedMessageId(m.id);
+        }
         // Opening (GET) already marked customer messages read server-side;
         // refresh the list so the green dot/Unread badge count clears
         // immediately.
@@ -482,7 +537,25 @@ export default function AdminChatsPage() {
       });
       if (!res.ok) return;
       const data = await res.json();
-      const newCount = (data.messages || []).length;
+      const newMessages = data.messages || [];
+      const newCount = newMessages.length;
+      // SUPPORT-NEW-MESSAGE-SOUND batch: a NEW customer message arriving
+      // while this conversation is open -> exactly one chime, via the
+      // SAME shared claim-set silentRefreshList uses above -- if the
+      // list poll already claimed/chimed this exact message id in the
+      // same or an earlier cycle, claimChimeForMessageId returns false
+      // here and this is correctly a silent no-op (no double chime).
+      // Never triggers for the admin's own outgoing message
+      // (senderRole !== "customer" is skipped) or a repeat poll of
+      // already-seen ids (claim returns false for ids already seeded/
+      // chimed by loadDetail's own initial seeding above).
+      for (const m of newMessages) {
+        if (m.senderRole === "customer" && claimChimeForMessageId(m.id)) {
+          playChime();
+        } else {
+          seedChimedMessageId(m.id);
+        }
+      }
       setDetail(data);
       // Only refresh the list (to clear the unread dot / bump ordering)
       // when the thread actually grew -- avoids an extra request on
