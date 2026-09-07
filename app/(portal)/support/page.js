@@ -398,6 +398,33 @@ export default function SupportPage() {
                         </div>
                       )}
                       <MessageAttachmentImage attachment={m.attachment} />
+                      {/* Read-receipts batch: compact "Sent"/"Read" status
+                          shown ONLY beneath the customer's OWN outgoing
+                          messages -- never beneath incoming admin
+                          messages (per spec: "Do NOT put 'Read'
+                          underneath incoming Admin messages from
+                          customer's perspective"). Deliberately does NOT
+                          reintroduce a timestamp (section J above still
+                          applies -- no created_at/edited_at rendering on
+                          this page for either side); this is purely the
+                          delivery-state word, matching a typical
+                          messaging app's compact receipt style. `m.readAt`
+                          comes from support_messages.read_at via GET
+                          /api/support/messages (see that route), which is
+                          only ever set by an ADMIN actually opening this
+                          customer's conversation (lib/supportEngine.js
+                          markConversationRead()) -- never by this same
+                          GET request, background polling, or any other
+                          customer-side action. A still-optimistic
+                          "pending-*" message (not yet round-tripped to
+                          the server) has no readAt and correctly shows
+                          "Sent".
+                      */}
+                      {isCustomer && (
+                        <div className="mt-1 text-right text-[10px] text-[#06121a]/60">
+                          {m.readAt ? "Read" : "Sent"}
+                        </div>
+                      )}
                       {/* Admin-portal batch, requirement override (section
                           J): customer Support Chat now shows NO
                           timestamps on ANY message -- neither admin/Jenny

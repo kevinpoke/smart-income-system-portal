@@ -91,6 +91,14 @@ export async function GET(request, { params }) {
       createdAt: m.created_at,
       editedAt: m.edited_at,
       readAt: m.read_at,
+      // Read-receipts batch: has the CUSTOMER actually viewed this
+      // admin-authored message (see lib/db.js support_messages.
+      // customer_read_at, and lib/supportEngine.js
+      // markAdminMessagesReadByCustomer(), which is the ONLY writer of
+      // this column -- fired exclusively from the customer's own
+      // Support-page GET, never from anything admin-side). Only ever
+      // non-null on sender_role = 'admin' rows.
+      customerReadAt: m.customer_read_at,
       senderFirstName: m.senderFirstName,
       senderPhotoUrl: m.senderPhotoUrl,
       attachment: m.attachment,

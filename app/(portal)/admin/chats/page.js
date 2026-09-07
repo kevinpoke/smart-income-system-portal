@@ -1294,6 +1294,28 @@ export default function AdminChatsPage() {
                                       never removes/replaces created_at,
                                       per spec section 12. */}
                                   {m.editedAt && <span className="italic">(edited)</span>}
+                                  {/* Read-receipts batch: compact "Sent"/
+                                      "Read" status shown ONLY beneath the
+                                      admin's OWN outgoing messages --
+                                      never beneath incoming customer
+                                      messages (per spec: "Do NOT show
+                                      redundant receipt text beneath
+                                      incoming customer messages from
+                                      Admin's perspective"). `m.customerReadAt`
+                                      comes from support_messages.
+                                      customer_read_at via GET
+                                      /api/admin/support/conversations/[id]
+                                      (see that route), set ONLY when the
+                                      CUSTOMER actually opens/loads their
+                                      own Support page (GET
+                                      /api/support/messages ->
+                                      markAdminMessagesReadByCustomer()) --
+                                      never by this admin GET, the admin
+                                      conversation LIST, or any other
+                                      admin-side action. */}
+                                  {isAdmin && (
+                                    <span>· {m.customerReadAt ? "Read" : "Sent"}</span>
+                                  )}
                                 </div>
                               </>
                             )}

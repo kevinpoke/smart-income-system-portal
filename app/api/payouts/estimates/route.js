@@ -72,9 +72,18 @@ export async function GET() {
     });
   }
 
+  // Payout-location-cleanup batch: this Payouts-tab response deliberately
+  // returns ONLY the state (never city, per spec: "remove city from all
+  // location displays/text in the Payouts section... show state only").
+  // This is PRESENTATION-only for this one response field -- the
+  // customer's actual city is still stored untouched on
+  // accounts.isp_city and still used normally by ISP Setup / Admin /
+  // other sections that legitimately reference it; this route just no
+  // longer concatenates it into the string it returns for the Payouts
+  // page's "Average Payout for {location}" heading.
   const location =
     account.isp_city && account.isp_state
-      ? `${account.isp_city}, ${account.isp_state}`
+      ? account.isp_state
       : null;
 
   const unlocked = hasPayoutsNodesAccess(account);

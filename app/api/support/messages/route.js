@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getCurrentAccountRaw } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
-import { getOrCreateConversation, getMessages, postMessage, markCustomerRead } from "@/lib/supportEngine";
+import {
+  getOrCreateConversation,
+  getMessages,
+  postMessage,
+  markCustomerRead,
+  markAdminMessagesReadByCustomer,
+} from "@/lib/supportEngine";
 import { deliverDueMessages } from "@/lib/supportAutomation";
 import { saveSupportImageUpload } from "@/lib/supportUploads";
 
@@ -62,6 +68,19 @@ export async function GET() {
   const conversation = getOrCreateConversation(db, account.id);
   const messages = getMessages(db, conversation.id, account.id);
   markCustomerRead(db, account.id);
+  // Read-receipts batch: the customer is, at this exact moment, actually
+  // opening/loading their own Support conversation -- the ONE authorized
+  // place a customer can mark incoming admin messages "Read" (see
+  // lib/supportEngine.js markAdminMessagesReadByCustomer() for the full
+  // authorization/idempotency rationale). Deliberately called AFTER
+  // getMessages() reads the pre-update state, so the very message(s)
+  // that just became read on THIS request still round-trip to the
+  // client as their prior state for this response; the client's next
+  // poll/refresh will reflect the fresh "Read" status, matching the
+  // spec's own test matrix step ("customer opens Support conversation ->
+  // read_at set" as the point-in-time event, "Admin UI refreshes ->
+  // displays Read" as the subsequently-observed effect).
+  markAdminMessagesReadByCustomer(db, conversation.id);
 
   return NextResponse.json({
     conversationId: conversation.id,
@@ -74,6 +93,13 @@ export async function GET() {
       senderFirstName: m.senderFirstName,
       senderPhotoUrl: m.senderPhotoUrl,
       attachment: m.attachment,
+      // Read-receipt batch: only meaningful on the customer's OWN
+      // outgoing messages (senderRole === 'customer') -- exposed for
+      // every message uniformly (rather than conditionally omitted) so
+      // the client's rendering rule ("only show status on the sender's
+      // own messages") lives in ONE place (the UI layer), not duplicated
+      // here.
+      readAt: m.read_at,
     })),
   });
 }
