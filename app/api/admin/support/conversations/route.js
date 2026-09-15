@@ -11,10 +11,22 @@ import { listConversationsForAdmin, getSupportFilterCounts } from "@/lib/support
 // insensitive partial match against first/last/full name/email,
 // server-side, combined with whichever filter/tag is also active).
 //
+// PAGINATION batch: also supports ?page= (1-indexed, default 1) and
+// ?pageSize= (one of 30/50/100/200/500, default 30) -- both validated
+// here (invalid/out-of-range values fall back to the default rather
+// than being rejected outright, matching this route's existing
+// permissive-default style for filter/search params) and passed through
+// to listConversationsForAdmin(), which performs REAL SQL LIMIT/OFFSET
+// pagination (never fetch-everything-then-slice-in-JS). The response
+// now also echoes back `totalCount`, `page`, and `pageSize` so the
+// (future) UI layer can render page controls without re-deriving them.
+//
 // Also returns `counts` (Part 4: Unread / Upsell badge counts) computed
 // via one small aggregate query each -- unaffected by the current
-// filter/search so the badges always reflect the TRUE total counts, not
-// a filtered subset.
+// filter/search/page/pageSize so the badges always reflect the TRUE
+// total counts, not a filtered/paged subset.
+const ALLOWED_PAGE_SIZES = [30, 50, 100, 200, 500];
+
 export async function GET(request) {
   const guard = await requireAdmin();
   if (!guard.account) {
@@ -26,9 +38,21 @@ export async function GET(request) {
   const tagIds = (searchParams.get("tags") || "").split(",").filter(Boolean);
   const search = searchParams.get("search") || "";
 
+  const rawPage = Number.parseInt(searchParams.get("page"), 10);
+  const page = Number.isInteger(rawPage) && rawPage >= 1 ? rawPage : 1;
+
+  const rawPageSize = Number.parseInt(searchParams.get("pageSize"), 10);
+  const pageSize = ALLOWED_PAGE_SIZES.includes(rawPageSize) ? rawPageSize : 30;
+
   const db = getDb();
-  const conversations = listConversationsForAdmin(db, { filter, tagIds, search });
+  const { conversations, totalCount } = listConversationsForAdmin(db, {
+    filter,
+    tagIds,
+    search,
+    page,
+    pageSize,
+  });
   const counts = getSupportFilterCounts(db);
 
-  return NextResponse.json({ conversations, counts });
+  return NextResponse.json({ conversations, counts, totalCount, page, pageSize });
 }

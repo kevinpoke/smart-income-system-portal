@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveAccountForLoginLinkToken } from "@/lib/loginLinkAccess";
 import { getDb } from "@/lib/db";
+import { generateId } from "@/lib/auth-crypto";
 import { createSession } from "@/lib/session";
 import { toPublicAccount } from "@/lib/authz";
 
@@ -126,6 +127,19 @@ export async function POST(request) {
          login_count = login_count + 1
      WHERE id = ?`
   ).run(now, now, account.id);
+
+  // ANALYTICS/SUPPORT/BRIDGE batch: durable per-event login record (see
+  // lib/db.js login_events table comment). This is the passwordless
+  // CUSTOMER login-link path -- login links are only ever minted/emailed
+  // for auth_mode='login_link' customer accounts (see
+  // lib/loginLinkAccess.js), never for admin accounts, so this route is
+  // customer-only by construction and never records an admin login.
+  // Recorded with auth_method='login_link'. No BEGIN/COMMIT wrapper is
+  // added, matching this route's existing bare-statement style (no
+  // pre-existing transaction to join for this one extra insert).
+  db.prepare(
+    `INSERT INTO login_events (id, account_id, logged_in_at, auth_method) VALUES (?, ?, ?, ?)`
+  ).run(generateId("loginevt"), account.id, now, "login_link");
 
   await createSession(account.id);
 

@@ -203,8 +203,24 @@ export default function AnalyticsPanel() {
               : undefined
           }
         />
-        <StatCard label="Disabled Users" value={data ? data.disabledUsers : "—"} />
-        <StatCard label="Module Timer Removed" value={data ? data.moduleTimerRemoved : "—"} />
+        <StatCard
+          label="Disabled Users"
+          value={data ? data.disabledUsers : "—"}
+          sub={data ? `${data.disabledPctOfTotalMembers}% of Total Members` : undefined}
+        />
+        <StatCard
+          label={
+            data?.moduleTimerRemovedAllTime ? (
+              <>
+                Module Timer Removed{" "}
+                <span className="normal-case text-[#707070]">(All Time)</span>
+              </>
+            ) : (
+              "Module Timer Removed"
+            )
+          }
+          value={data ? data.moduleTimerRemoved : "—"}
+        />
         <StatCard label="Balance Increased" value={data ? data.balanceIncreased : "—"} />
       </div>
 
@@ -290,18 +306,66 @@ export default function AnalyticsPanel() {
             c={data.ispApprovalConversion.manual}
             className="mt-4"
           />
-          <ConversionBlock
-            title="Automatic 3-Day Approval"
-            c={data.ispApprovalConversion.automatic}
-            className="mt-4"
-          />
-          {data.ispApprovalConversion.unknownApprovalSource.approved > 0 && (
-            <ConversionBlock
-              title="Unknown Approval Source"
-              c={data.ispApprovalConversion.unknownApprovalSource}
-              className="mt-4"
+        </div>
+      )}
+
+      {data?.ispRetention && (
+        <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-3 text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+            Post-ISP Login Retention
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard label="Total ISP Setups" value={data.ispRetention.totalIspSetups} />
+            <StatCard
+              label="Returned After ISP"
+              value={data.ispRetention.returnedAfterIsp.count}
+              sub={`${data.ispRetention.returnedAfterIsp.pct}% of setups`}
             />
+            <StatCard
+              label="Day 2 Return"
+              value={data.ispRetention.day2Return.count}
+              sub={`${data.ispRetention.day2Return.pct}% of setups`}
+            />
+            <StatCard
+              label="Day 3 Return"
+              value={data.ispRetention.day3Return.count}
+              sub={`${data.ispRetention.day3Return.pct}% of setups`}
+            />
+          </div>
+          {data.ispRetention.historicalLimitationNote && (
+            <div className="mt-3 text-[11px] italic text-[#707070]">
+              {data.ispRetention.historicalLimitationNote}
+            </div>
           )}
+        </div>
+      )}
+
+      {data?.automatedMessages && (
+        <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-3 text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+            Automated Support Messages
+          </div>
+          <div className="space-y-2">
+            {data.automatedMessages.map((a) => (
+              <div
+                key={a.automationKey}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2"
+              >
+                <div className="text-xs font-medium text-white">{a.automationName}</div>
+                <div className="flex flex-wrap items-center gap-4 text-[11px] text-[#B0B0B0]">
+                  <span>
+                    Sent: <span className="font-semibold text-white">{a.sent}</span>
+                  </span>
+                  <span>
+                    Replied: <span className="font-semibold text-white">{a.replied}</span>
+                  </span>
+                  <span>
+                    Reply Rate: <span className="font-semibold text-[#32B5FF]">{a.replyRatePct}%</span>
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

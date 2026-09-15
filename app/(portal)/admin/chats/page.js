@@ -184,6 +184,18 @@ export default function AdminChatsPage() {
   const [deletingTagId, setDeletingTagId] = useState(null);
   const [counts, setCounts] = useState({ unreadCount: 0, upsellCount: 0 });
 
+  // UI TASK B: server-side pagination for the LEFT conversation list.
+  // pageSize defaults to 30 (spec); page resets to 1 whenever the
+  // filter/search/tag selection changes, since a new filtered result
+  // set always starts at its own page 1. totalCount comes straight from
+  // the server (GET /api/admin/support/conversations's own COUNT(*)),
+  // never re-derived client-side.
+  const PAGE_SIZE_OPTIONS = [30, 50, 100, 200, 500];
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(30);
+  const [totalCount, setTotalCount] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+
   const [selectedId, setSelectedId] = useState(null);
   const [detail, setDetail] = useState(null); // { conversation, messages }
   const [detailStatus, setDetailStatus] = useState("idle"); // idle | loading | ready | error
@@ -336,6 +348,8 @@ export default function AdminChatsPage() {
       params.set("filter", filter);
       if (selectedTagIds.length > 0) params.set("tags", selectedTagIds.join(","));
       if (search) params.set("search", search);
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
       const res = await fetch(`/api/admin/support/conversations?${params.toString()}`, {
         cache: "no-store",
       });
@@ -344,6 +358,7 @@ export default function AdminChatsPage() {
       const nextConversations = data.conversations || [];
       setConversations(nextConversations);
       if (data.counts) setCounts(data.counts);
+      if (typeof data.totalCount === "number") setTotalCount(data.totalCount);
       setListStatus("ready");
       // SUPPORT-NEW-MESSAGE-SOUND batch: every full (non-silent) load of
       // the conversation list -- initial mount, filter/search/tag/page
@@ -358,7 +373,7 @@ export default function AdminChatsPage() {
     } catch {
       setListStatus("error");
     }
-  }, [filter, selectedTagIds, search]);
+  }, [filter, selectedTagIds, search, page, pageSize]);
 
   // Portal reliability pass: silent variant used by the polling interval
   // -- never flips listStatus back to "loading" (which would blank the
@@ -376,6 +391,8 @@ export default function AdminChatsPage() {
       params.set("filter", filter);
       if (selectedTagIds.length > 0) params.set("tags", selectedTagIds.join(","));
       if (search) params.set("search", search);
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
       const res = await fetch(`/api/admin/support/conversations?${params.toString()}`, {
         cache: "no-store",
       });
@@ -406,10 +423,11 @@ export default function AdminChatsPage() {
       }
       setConversations(nextConversations);
       if (data.counts) setCounts(data.counts);
+      if (typeof data.totalCount === "number") setTotalCount(data.totalCount);
     } catch {
       // keep the last known list on a transient network error
     }
-  }, [filter, selectedTagIds, search]);
+  }, [filter, selectedTagIds, search, page, pageSize]);
 
   const loadTags = useCallback(async () => {
     try {
@@ -439,6 +457,20 @@ export default function AdminChatsPage() {
     const id = setTimeout(() => setSearch(searchInput.trim()), 300);
     return () => clearTimeout(id);
   }, [searchInput]);
+
+  // UI TASK B: a NEW filtered/searched/tagged result set always starts
+  // at page 1 -- changing filter/search/tags resets page without
+  // touching pageSize. Deliberately excludes `page`/`pageSize` from its
+  // own deps (this effect only reacts to the filter identity changing).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPage(1);
+  }, [filter, selectedTagIds, search]);
+
+  function handlePageSizeChange(nextSize) {
+    setPageSize(nextSize);
+    setPage(1);
+  }
 
   // Portal reliability pass: poll the conversation list every ~4s so a
   // NEW customer message (a new conversation, or a bump to the top of an
@@ -952,6 +984,47 @@ export default function AdminChatsPage() {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* UI TASK B: compact server-side pagination controls for the
+                LEFT conversation list -- page-size dropdown (30/50/100/
+                200/500), Previous/Next, and a "Page X of Y" label. Y is
+                derived from the server's own totalCount (never a
+                client-side guess). Changing page size resets to page 1
+                via handlePageSizeChange(); changing filter/search/tags
+                resets to page 1 via the effect above. */}
+            <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-white/10 px-3 py-1.5">
+              <select
+                value={pageSize}
+                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-medium text-[#B0B0B0] outline-none focus:ring-1 focus:ring-[#32B5FF]"
+                title="Rows per page"
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size} className="bg-[#1E1E1E] text-white">
+                    {size} / page
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="rounded-full bg-white/5 px-2 py-1 text-[10px] font-medium text-[#B0B0B0] hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Prev
+                </button>
+                <span className="text-[10px] text-[#707070]">
+                  Page {page} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  className="rounded-full bg-white/5 px-2 py-1 text-[10px] font-medium text-[#B0B0B0] hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
             </div>
 
             {/* LEFT PANE: internal scrolling, tighter rows (Part 7).

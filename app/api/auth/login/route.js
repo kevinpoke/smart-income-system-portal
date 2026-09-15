@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { verifyPassword } from "@/lib/auth-crypto";
+import { verifyPassword, generateId } from "@/lib/auth-crypto";
 import { createSession } from "@/lib/session";
 import { toPublicAccount } from "@/lib/authz";
 
@@ -107,6 +107,24 @@ export async function POST(request) {
          login_count = login_count + 1
      WHERE id = ?`
   ).run(now, now, account.id);
+
+  // ANALYTICS/SUPPORT/BRIDGE batch: durable per-event login record (see
+  // lib/db.js login_events table comment). This route is shared by BOTH
+  // customer and admin password logins (there is no separate admin
+  // login route) -- the login_events table's own documented invariant
+  // is "customer-only" (Post-ISP Retention and every other consumer of
+  // this table assume every row belongs to a customer account), so an
+  // explicit role check is required here to make that true, rather than
+  // assuming it "by construction" as an earlier version of this route
+  // incorrectly did. No BEGIN/COMMIT wrapper is added since this route
+  // already performs its account UPDATE as a bare statement with no
+  // existing transaction to join -- matching the existing style rather
+  // than introducing a new pattern for one extra insert.
+  if (account.role === "customer") {
+    db.prepare(
+      `INSERT INTO login_events (id, account_id, logged_in_at, auth_method) VALUES (?, ?, ?, ?)`
+    ).run(generateId("loginevt"), account.id, now, "password");
+  }
 
   await createSession(account.id);
 

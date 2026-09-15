@@ -3,16 +3,24 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
-import { Users, MessageSquare, ShieldCheck, FlaskConical, BarChart3 } from "lucide-react";
+import { Users, MessageSquare, ShieldCheck, FlaskConical, BarChart3, UserX } from "lucide-react";
 
 // Required relative order (per spec): ISP Approvals -> Test -> Analytics.
 // Analytics is a peer-level top nav item now, not a Support Chats tab --
 // see app/(portal)/admin/analytics/page.js and
 // components/admin/AnalyticsPanel.js.
+//
+// UI TASK C: "Never Logged In" placed right after "ISP Approvals" --
+// it's a customer-lifecycle/support-follow-up tool in the same family
+// as ISP Approvals (both are "accounts needing admin attention" lists),
+// so it reads naturally as a peer of that tab rather than being buried
+// after the developer-facing Test tab or the reporting-only Analytics
+// tab.
 const TABS = [
   { href: "/admin", label: "Users", icon: Users },
   { href: "/admin/chats", label: "Support Chats", icon: MessageSquare },
   { href: "/admin/isp-approvals", label: "ISP Approvals", icon: ShieldCheck },
+  { href: "/admin/never-logged-in", label: "Never Logged In", icon: UserX },
   { href: "/admin/test", label: "Test", icon: FlaskConical },
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
 ];

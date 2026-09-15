@@ -8,6 +8,8 @@ import {
   computeDisabledFunnel,
   computeIspApprovalConversion,
   computeModule10RefundAnalytics,
+  computeIspRetention,
+  computeAutomatedMessageAnalytics,
 } from "@/lib/supportAnalytics";
 
 // Admin-only, server-side aggregate Analytics for the Support "Analytics"
@@ -17,57 +19,52 @@ import {
 // never by shipping raw account/message rows to the browser for
 // client-side math, per the spec's "ANALYTICS PERFORMANCE" requirement.
 //
-// AUTHORITATIVE FIELD MAPPING (see this route's accompanying audit notes
-// in the batch report for full reasoning):
-//   A. Total Members          -> COUNT(accounts) WHERE role = 'customer'
-//   B. Logged In At Least Once-> COUNT(...) WHERE first_login_at IS NOT NULL
-//        (first_login_at is set once, on the FIRST successful login only
-//        -- see app/api/auth/login/route.js -- never guessed from
-//        created_at/account-creation, which would count accounts that
-//        never actually logged in)
-//   C. ISP Applications Submitted -> COUNT(DISTINCT) WHERE isp_submitted_at
-//        IS NOT NULL (set only by POST /api/isp/submit on a genuine
-//        customer submission -- never by merely opening the ISP page)
-//   D. ISP Approved/Activated -> COUNT(DISTINCT) WHERE isp_status = 'active'.
-//        isp_status only ever transitions to 'active' inside
-//        lib/ispEngine.js#completeIspAuthorization, which is only ever
-//        invoked from POST /api/isp/authorize/complete -- an
-//        authenticated CUSTOMER-session-only route (getCurrentAccountRaw(),
-//        never requireAdmin()) that itself requires the server-verified
-//        20-second post-admin-approval verification window to have
-//        elapsed. This is NOT admin approval alone (that only reaches
-//        'approved_awaiting_user'), NOT submission (pending_review), and
-//        NOT the 3-day auto-approval alone (auto-approval also only
-//        reaches 'approved_awaiting_user' -- see
-//        lib/ispEngine.js#checkAndAutoApproveIsp /
-//        transitionIspToApproved). Reaching 'active' strictly requires
-//        the customer's own final click-through. No new column was
-//        needed; this is a fully reliable EXISTING signal, verified by
-//        reading the exact code path above.
-//   E. Bridge Waitlist -> COUNT(DISTINCT) WHERE waitlist_joined_at IS NOT
-//        NULL (set exactly once, guarded by COALESCE, in POST
-//        /api/waitlist/join -- never incremented per-click)
-//   F. Average Support Response Time -> see lib/supportAnalytics.js
-//   G. Disabled Users -> COUNT(DISTINCT) WHERE account_status = 'disabled'
-//        AND role = 'customer'
-//   H. Module Timer Removed -> COUNT(DISTINCT) WHERE modules_unlocked = 1
-//        AND role = 'customer' (the existing admin-only "Unlock All
-//        Modules" override column -- see
-//        app/api/admin/accounts/[id]/unlock-all -- flips this from 0 to 1
-//        ONLY via an explicit admin action; it is never set by the
-//        natural time-based module unlock system in
-//        lib/moduleEngine.js/account_module_progress, so it cannot
-//        double-count users whose modules unlocked naturally)
-//   I. Balance Increased -> COUNT(DISTINCT account_id) FROM ledger_entries
-//        WHERE event_type = 'admin_credit'. Verified authoritative: EVERY
-//        write of event_type='admin_credit' in this codebase originates
-//        from an admin-only action -- app/api/admin/accounts/[id]/balance
-//        (positive amountCents) or app/api/admin/accounts/create (initial
-//        starting balance set by an admin at account creation). Ordinary
-//        earnings use event_type='earning' (lib/earningsEngine.js),
-//        payouts use 'payout', corrections use 'correction' -- none of
-//        those are counted. DISTINCT account_id means a member who
-//        received 5 separate manual credits is counted once.
+// DATE-RANGE ARCHITECTURE (ANALYTICS/SUPPORT/BRIDGE batch): the selected
+// `range` now applies to EVERY dataset below via each metric's OWN
+// canonical anchor timestamp -- never a blanket created_at filter for
+// everything. Mapping (see lib/supportAnalytics.js for the actual SQL):
+//   A. Total Members          -> accounts.created_at within range
+//   B. Logged In At Least Once-> cohort = accounts.created_at within
+//        range (same cohort as Total Members, so this stays a coherent
+//        ratio of "this period's new members"), first_login_at IS NOT
+//        NULL evaluated WITHOUT its own date filter (a member who
+//        joined in-range may legitimately log in for the first time
+//        after the range ends -- that first login itself is not a
+//        separate "cohort start event," it is a follow-up fact about an
+//        already-in-range member, per the cohort-membership philosophy
+//        documented in lib/supportAnalytics.js's TASK 4 COHORT RULE
+//        comment. This was a deliberate judgment call -- the spec left
+//        this metric's exact semantics open to engineering judgment).
+//   C. ISP Submitted   -> isp_submitted_at within range (own cohort
+//        anchor, independent of when the member joined)
+//   D. ISP Approved/Activated -> isp_approved_at within range (the
+//        canonical "became approved" transition timestamp --
+//        isp_status='active'/user_authorized_at/node_connected_at mark
+//        a LATER, separate transition -- go-LIVE, not approval -- see
+//        lib/supportAnalytics.js isLive()/computeIspApprovalConversion
+//        for that distinct concept. This stat is literally named
+//        "ISP Approved/Activated" so it uses the APPROVAL timestamp,
+//        matching the metric's own primary word "Approved")
+//   E. Bridge Waitlist -> waitlist_joined_at within range
+//   F. Average Support Response Time -> unchanged, still filtered by
+//        the initiating customer message's own timestamp (see
+//        lib/supportAnalytics.js computeResponseTimeSamples)
+//   G. Disabled Users  -> disabled_at within range (numerator); its
+//        top-level percentage is disabledUsers / totalMembers (TASK 3
+//        fix, see disabledFunnel.disabledPctOfTotalMembers below) --
+//        NEVER totalDisabled, which would answer a different question.
+//   H. Module Timer Removed -> accounts.modules_unlocked=1 has NO
+//        timestamp column at all (a point-in-time admin override flag,
+//        not an event with a "when" -- adding one would require a new
+//        migration solely to backfill an unknowable historical instant
+//        for every pre-existing override, which risks silently
+//        misdating real historical toggles). Per spec ("no hidden
+//        all-time cards"), this stays ALL-TIME but is now explicitly
+//        labeled `allTime: true` in the payload so the (future) UI
+//        layer can render "(All Time)" next to it rather than silently
+//        implying it respects the selected range.
+//   I. Balance Increased -> ledger_entries.created_at within range
+//        (event_type = 'admin_credit', unchanged eligibility rule)
 export async function GET(request) {
   const guard = await requireAdmin();
   if (!guard.account) {
@@ -81,40 +78,63 @@ export async function GET(request) {
 
   const db = getDb();
 
-  const totalMembers = db
-    .prepare(`SELECT COUNT(*) AS c FROM accounts WHERE role = 'customer'`)
-    .get().c;
+  const range = resolvePeriodRange(period, { customStart, customEnd });
+  if (!range) {
+    return NextResponse.json({ error: "Invalid period or custom date range." }, { status: 400 });
+  }
+  const startIso = new Date(range.startMs).toISOString();
+  const endIso = new Date(range.endMs).toISOString();
 
+  const totalMembers = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM accounts
+       WHERE role = 'customer' AND created_at >= ? AND created_at < ?`
+    )
+    .get(startIso, endIso).c;
+
+  // Cohort = same "joined within range" population as Total Members;
+  // first_login_at itself is NOT date-filtered (see header comment --
+  // this is the documented cohort-membership judgment call for this
+  // ratio metric).
   const loggedInAtLeastOnce = db
     .prepare(
-      `SELECT COUNT(*) AS c FROM accounts WHERE role = 'customer' AND first_login_at IS NOT NULL`
+      `SELECT COUNT(*) AS c FROM accounts
+       WHERE role = 'customer' AND created_at >= ? AND created_at < ?
+         AND first_login_at IS NOT NULL`
     )
-    .get().c;
+    .get(startIso, endIso).c;
 
   const ispSubmitted = db
     .prepare(
-      `SELECT COUNT(*) AS c FROM accounts WHERE role = 'customer' AND isp_submitted_at IS NOT NULL`
+      `SELECT COUNT(*) AS c FROM accounts
+       WHERE role = 'customer' AND isp_submitted_at >= ? AND isp_submitted_at < ?`
     )
-    .get().c;
+    .get(startIso, endIso).c;
 
   const ispApprovedActivated = db
     .prepare(
-      `SELECT COUNT(*) AS c FROM accounts WHERE role = 'customer' AND isp_status = 'active'`
+      `SELECT COUNT(*) AS c FROM accounts
+       WHERE role = 'customer' AND isp_approved_at >= ? AND isp_approved_at < ?`
     )
-    .get().c;
+    .get(startIso, endIso).c;
 
   const bridgeWaitlist = db
     .prepare(
-      `SELECT COUNT(*) AS c FROM accounts WHERE role = 'customer' AND waitlist_joined_at IS NOT NULL`
+      `SELECT COUNT(*) AS c FROM accounts
+       WHERE role = 'customer' AND waitlist_joined_at >= ? AND waitlist_joined_at < ?`
     )
-    .get().c;
+    .get(startIso, endIso).c;
 
   const disabledUsers = db
     .prepare(
-      `SELECT COUNT(*) AS c FROM accounts WHERE role = 'customer' AND account_status = 'disabled'`
+      `SELECT COUNT(*) AS c FROM accounts
+       WHERE role = 'customer' AND account_status = 'disabled'
+         AND disabled_at >= ? AND disabled_at < ?`
     )
-    .get().c;
+    .get(startIso, endIso).c;
 
+  // Module Timer Removed: no timestamp column exists for this admin
+  // override (see header comment) -- stays all-time, explicitly labeled.
   const moduleTimerRemoved = db
     .prepare(
       `SELECT COUNT(*) AS c FROM accounts WHERE role = 'customer' AND modules_unlocked = 1`
@@ -126,16 +146,14 @@ export async function GET(request) {
       `SELECT COUNT(DISTINCT le.account_id) AS c
        FROM ledger_entries le
        JOIN accounts a ON a.id = le.account_id
-       WHERE le.event_type = 'admin_credit' AND a.role = 'customer'`
+       WHERE le.event_type = 'admin_credit' AND a.role = 'customer'
+         AND le.created_at >= ? AND le.created_at < ?`
     )
-    .get().c;
+    .get(startIso, endIso).c;
 
   // ---- Average Support Response Time (with period filter) ----
-  const range = resolvePeriodRange(period, { customStart, customEnd });
   let responseTime = { avgMs: null, count: 0, formatted: null, error: null };
-  if (!range) {
-    responseTime.error = "Invalid period or custom date range.";
-  } else {
+  {
     const samples = computeResponseTimeSamples(db);
     const { avgMs, count } = summarizeResponseTimes(samples, range.startMs, range.endMs);
     responseTime = {
@@ -153,16 +171,28 @@ export async function GET(request) {
   // ---- DISABLED-FUNNEL-ANALYTICS + ISP-APPROVAL-CONVERSION batch ----
   // Both computed server-side via a single aggregate query each (see
   // lib/supportAnalytics.js) -- never by shipping raw account rows to
-  // the browser.
-  const disabledFunnel = computeDisabledFunnel(db);
-  const ispApprovalConversion = computeIspApprovalConversion(db);
+  // the browser. Both now range-filtered by their own canonical anchor
+  // (disabled_at / isp_approved_at respectively -- see TASK 2 mapping).
+  // computeDisabledFunnel also receives `totalMembers` (the SAME count
+  // computed above, for the SAME range) so its disabledPctOfTotalMembers
+  // field is guaranteed consistent with the top-level Total Members stat
+  // (TASK 3 fix).
+  const disabledFunnel = computeDisabledFunnel(db, range, totalMembers);
+  const ispApprovalConversion = computeIspApprovalConversion(db, range);
 
   // ---- MODULE-10-REFUND-ANALYTICS batch ----
   // See lib/supportAnalytics.js#computeModule10RefundAnalytics for the
   // full authoritative-definitions audit (refund source, unlock
   // schedule, real completion signal). Single server-side aggregate
-  // pass -- never ships raw account rows to the browser.
-  const module10Refunds = computeModule10RefundAnalytics(db);
+  // pass -- never ships raw account rows to the browser. Now
+  // range-filtered by disabled_at (the refund event's own timestamp).
+  const module10Refunds = computeModule10RefundAnalytics(db, Date.now(), range);
+
+  // ---- TASK 4: Post-ISP login retention ----
+  const ispRetention = computeIspRetention(db, range);
+
+  // ---- TASK 5: Automated Support Messages analytics ----
+  const automatedMessages = computeAutomatedMessageAnalytics(db, range);
 
   return NextResponse.json({
     totalMembers,
@@ -176,7 +206,9 @@ export async function GET(request) {
     bridgeWaitlistPctOfTotal: pct(bridgeWaitlist, totalMembers),
     bridgeWaitlistPctOfLoggedIn: pct(bridgeWaitlist, loggedInAtLeastOnce),
     disabledUsers,
+    disabledPctOfTotalMembers: disabledFunnel.disabledPctOfTotalMembers, // TASK 3 fix (2-decimal precision)
     moduleTimerRemoved,
+    moduleTimerRemovedAllTime: true, // TASK 2: no per-toggle timestamp exists -- see header comment
     balanceIncreased,
     responseTime: {
       avgMs: responseTime.avgMs,
@@ -189,5 +221,7 @@ export async function GET(request) {
     disabledFunnel,
     ispApprovalConversion,
     module10Refunds,
+    ispRetention,
+    automatedMessages,
   });
 }
