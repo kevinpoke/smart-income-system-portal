@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { GlassCard } from "@/components/ui/Primitives";
 import { formatAdminDateTime } from "@/lib/adminTime";
-import { Search, UserX, X } from "lucide-react";
+import { Search, UserX, X, Download } from "lucide-react";
 
 const PAGE_SIZE_OPTIONS = [30, 50, 100, 200, 500];
 
@@ -31,6 +31,8 @@ export default function NeverLoggedInPage() {
   const [rows, setRows] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
   const [status, setStatus] = useState("loading"); // loading | ready | error
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
@@ -79,6 +81,40 @@ export default function NeverLoggedInPage() {
     setPage(1);
   }
 
+  // NEVER-LOGGED-IN-EXPORT batch: "Export All" always exports the ENTIRE
+  // permanent cohort, completely independent of the current page/
+  // pageSize/search state (spec: "The main button should export ALL
+  // cohort members regardless of current pagination... do NOT silently
+  // export only filtered rows"). Deliberately never passes `search` to
+  // the export endpoint, so an active search box filter can never
+  // silently narrow what this specific button downloads. Triggers a
+  // real browser file download via a temporary object URL + anchor
+  // click (no server-rendered link, no new tab) so the admin stays on
+  // this page throughout.
+  async function handleExportAll() {
+    if (exporting) return;
+    setExporting(true);
+    setExportError("");
+    try {
+      const res = await fetch("/api/admin/never-logged-in/export", { cache: "no-store" });
+      if (!res.ok) throw new Error("export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      a.download = `never-logged-in-emails-${dateStamp}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportError("Unable to export the list. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <GlassCard className="p-5">
       <div className="mb-4 flex items-center gap-2">
@@ -91,24 +127,43 @@ export default function NeverLoggedInPage() {
           Total: <span className="font-semibold text-white">{totalCount}</span> account
           {totalCount === 1 ? "" : "s"}
         </div>
-        <div className="relative w-full max-w-xs">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]" />
-          <input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search by email…"
-            className="w-full rounded-lg border border-white/10 bg-white/5 py-1.5 pl-7 pr-7 text-xs text-white placeholder-[#707070] outline-none focus:ring-1 focus:ring-[#32B5FF]"
-          />
-          {searchInput && (
-            <button
-              onClick={() => setSearchInput("")}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[#707070] hover:text-white"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          )}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleExportAll}
+            disabled={exporting}
+            className="flex items-center gap-1.5 rounded-lg border border-[#32B5FF]/40 bg-[#32B5FF]/10 px-3 py-1.5 text-xs font-semibold text-[#32B5FF] transition hover:bg-[#32B5FF]/20 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Export the entire Never Logged In cohort as a CSV file"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {exporting ? "Exporting…" : "Export All"}
+          </button>
+          <div className="relative w-full max-w-xs">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#707070]" />
+            <input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search by email…"
+              className="w-full rounded-lg border border-white/10 bg-white/5 py-1.5 pl-7 pr-7 text-xs text-white placeholder-[#707070] outline-none focus:ring-1 focus:ring-[#32B5FF]"
+            />
+            {searchInput && (
+              <button
+                onClick={() => setSearchInput("")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[#707070] hover:text-white"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
+
+      {exportError && (
+        <div className="mb-4 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+          {exportError}
+        </div>
+      )}
+
 
       {status === "error" && (
         <div className="mb-4 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
