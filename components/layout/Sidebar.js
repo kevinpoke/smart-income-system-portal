@@ -19,13 +19,14 @@ import {
 import { useAccount } from "@/lib/useAccount";
 import { useSupportUnread } from "@/lib/useSupportUnread";
 import { useIspUnread } from "@/lib/useIspUnread";
+import { useWaitlistStatus } from "@/lib/useWaitlistStatus";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/modules", label: "Modules", icon: PlayCircle },
   { href: "/isp-setup", label: "ISP Setup", icon: Wifi },
   { href: "/payouts", label: "Payouts", icon: Wallet },
-  { href: "/nodes", label: "Data Bridges", icon: Server },
+  { href: "/nodes", label: "Waitlist", icon: Server },
   { href: "/withdrawals", label: "Withdrawals", icon: Banknote },
   { href: "/support", label: "Support", icon: LifeBuoy },
 ];
@@ -50,6 +51,12 @@ export default function Sidebar() {
   // (see lib/useIspUnread.js) -- fully separate poll/state from Support's,
   // so opening Support never clears this and vice versa.
   const { unread: ispUnread } = useIspUnread();
+  // Waitlist redesign batch (spec section B): server-authoritative blue
+  // glow on the Waitlist nav item -- polls /api/waitlist/status (backed
+  // entirely by accounts.waitlist_joined_at, never localStorage/component
+  // state), independent of the Support/ISP unread polls above.
+  const { status: waitlistStatus } = useWaitlistStatus(5000);
+  const showWaitlistGlow = waitlistStatus != null && waitlistStatus.state !== "joined";
 
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -116,8 +123,16 @@ export default function Sidebar() {
           // Production feature/fix batch: identical badge, driven by the
           // independent ispUnread state, on the ISP Setup nav item only.
           const showIspBadge = item.href === "/isp-setup" && ispUnread;
-          const showBadge = showSupportBadge || showIspBadge;
-          const badgeLabel = showSupportBadge ? "Unread support reply" : "ISP status update";
+          // Waitlist redesign batch: the Waitlist nav item reuses this
+          // exact same blue glow/badge treatment (never a different
+          // red/orange style) whenever the account hasn't joined yet.
+          const showWaitlistBadge = item.href === "/nodes" && showWaitlistGlow;
+          const showBadge = showSupportBadge || showIspBadge || showWaitlistBadge;
+          const badgeLabel = showSupportBadge
+            ? "Unread support reply"
+            : showIspBadge
+              ? "ISP status update"
+              : "Join the Waitlist";
           return (
             <Link
               key={item.href}

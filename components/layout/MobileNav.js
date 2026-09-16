@@ -16,13 +16,14 @@ import {
 } from "lucide-react";
 import { useSupportUnread } from "@/lib/useSupportUnread";
 import { useIspUnread } from "@/lib/useIspUnread";
+import { useWaitlistStatus } from "@/lib/useWaitlistStatus";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: LayoutDashboard },
   { href: "/modules", label: "Modules", icon: PlayCircle },
   { href: "/isp-setup", label: "ISP", icon: Wifi },
   { href: "/payouts", label: "Payouts", icon: Wallet },
-  { href: "/nodes", label: "Bridges", icon: Server },
+  { href: "/nodes", label: "Waitlist", icon: Server },
   { href: "/withdrawals", label: "Cash Out", icon: Banknote },
   { href: "/support", label: "Support", icon: LifeBuoy },
 ];
@@ -37,6 +38,10 @@ export default function MobileNav() {
   // Production feature/fix batch: independent ISP Setup unread indicator,
   // fully separate poll/state from Support's.
   const { unread: ispUnread } = useIspUnread();
+  // Waitlist redesign batch: same server-authoritative glow source as
+  // the desktop Sidebar (see components/layout/Sidebar.js).
+  const { status: waitlistStatus } = useWaitlistStatus(5000);
+  const showWaitlistGlow = waitlistStatus != null && waitlistStatus.state !== "joined";
 
   // Same logout behavior as the desktop Sidebar: POST to the real logout
   // endpoint (server session is the source of truth), guard against
@@ -64,8 +69,13 @@ export default function MobileNav() {
         const Icon = item.icon;
         const showSupportBadge = item.href === "/support" && supportUnread;
         const showIspBadge = item.href === "/isp-setup" && ispUnread;
-        const showBadge = showSupportBadge || showIspBadge;
-        const badgeLabel = showSupportBadge ? "Unread support reply" : "ISP status update";
+        const showWaitlistBadge = item.href === "/nodes" && showWaitlistGlow;
+        const showBadge = showSupportBadge || showIspBadge || showWaitlistBadge;
+        const badgeLabel = showSupportBadge
+          ? "Unread support reply"
+          : showIspBadge
+            ? "ISP status update"
+            : "Join the Waitlist";
         return (
           <Link
             key={item.href}
