@@ -43,7 +43,7 @@ function PreJoinOverlay({ onJoin, joining, error }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="absolute inset-0 z-20 flex items-center justify-center p-4"
+      className="absolute inset-0 z-20 flex items-start justify-center p-4 pt-6 sm:pt-8"
     >
       <motion.div
         initial={{ scale: 0.96, opacity: 0 }}
@@ -231,7 +231,7 @@ export default function NodesPage() {
           aria-hidden={notJoined}
           className={
             notJoined
-              ? "pointer-events-none select-none opacity-25 brightness-[0.35] blur-[1px] transition-all"
+              ? "pointer-events-none select-none opacity-50 brightness-[0.65] transition-all"
               : "transition-all"
           }
         >
