@@ -14,7 +14,7 @@ import { Trash2 } from "lucide-react";
 // never touch any other Bridge's row, matching the PATCH route's
 // `WHERE id = ? AND account_id = ?` scoping in lib/ownedNodes.js
 // updateOwnedNodeTier()). Tier <select> OPTION LABELS show the new
-// customer/admin-facing Bridge names ("Bridge"/"Golden Bridge"/"XI
+// customer/admin-facing Bridge names ("Bridge"/"Golden Bridge"/"IX
 // Bridge") via tierKeyToBridgeDisplayName() -- their underlying
 // `value`/tierKey attributes remain "standard"/"super"/"nova" unchanged,
 // per spec section 7.

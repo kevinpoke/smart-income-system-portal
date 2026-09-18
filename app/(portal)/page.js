@@ -449,10 +449,11 @@ function YourNodesSection({ nodes, loading }) {
                       {/* ISP support controls + special bridges batch: one
                           of the four EXACT special Bridges shows its OWN
                           catalog display name ("Golden Bridge"/"IX
-                          Bridge") -- never the internal "XI Bridge" label
-                          nova would otherwise render -- per spec section
-                          22 ("do not show internal DB keys like XI if
-                          customer-facing requirement is IX"). */}
+                          Bridge") -- never the generic nova-tier "IX
+                          Bridge" label this Bridge might otherwise
+                          render via tierKeyToBridgeDisplayName() -- per
+                          spec section 22 (special Bridges always use
+                          their own catalog displayName). */}
                       {node.isSpecialBridge ? (
                         <Badge tone={node.specialBridgeDisplayName === "Golden Bridge" ? "warning" : "accent"}>
                           {node.specialBridgeDisplayName}
