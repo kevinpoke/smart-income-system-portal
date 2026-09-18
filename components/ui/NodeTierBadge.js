@@ -45,10 +45,21 @@ export const NOVA_CARD_GLOW_CLASS =
 // `tierKey` via tierKeyToBridgeDisplayName() so the badge text is
 // always "Bridge" / "Golden Bridge" / "IX Bridge" regardless of what
 // legacy display string was passed in.
-export default function NodeTierBadge({ tierKey, tier, className = "", children }) {
+// `flatBlue` (Dashboard IX-Bridge-blue batch): when true, an IX Bridge
+// (tierKey "nova") renders with the SAME plain/static Standard-Bridge
+// blue Badge styling below instead of its distinct purple glow/pulse
+// treatment -- context-aware per-call-site override, NOT a change to
+// the shared purple definition itself (every other existing caller --
+// the Data Bridges marketplace, User Management, Add/Edit Bridge admin
+// popups -- omits this prop and keeps the exact prior purple/pulse
+// look unchanged). Only the Dashboard "Your Bridges" row passes
+// `flatBlue` (see app/(portal)/page.js YourNodesSection). The IX Bridge
+// label/text itself is unaffected either way -- still sourced from
+// tierKeyToBridgeDisplayName() below.
+export default function NodeTierBadge({ tierKey, tier, className = "", children, flatBlue = false }) {
   const label = tierKeyToBridgeDisplayName(tierKey);
 
-  if (tierKey === "nova") {
+  if (tierKey === "nova" && !flatBlue) {
     return (
       <span
         className={clsx(

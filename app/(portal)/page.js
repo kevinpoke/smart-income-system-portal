@@ -459,7 +459,16 @@ function YourNodesSection({ nodes, loading }) {
                           {node.specialBridgeDisplayName}
                         </Badge>
                       ) : (
-                        <NodeTierBadge tierKey={node.tierKey} tier={node.tier} />
+                        // Dashboard-IX-Bridge-blue batch: flatBlue makes an
+                        // IX Bridge (tierKey "nova") render with the same
+                        // plain/static blue Standard-Bridge Badge styling
+                        // here on the Dashboard only -- every other
+                        // NodeTierBadge caller (Data Bridges marketplace,
+                        // User Management, admin Add/Edit Bridge popups)
+                        // omits this prop and keeps its existing purple
+                        // glow/pulse treatment unchanged. Label text is
+                        // unaffected (still "IX Bridge").
+                        <NodeTierBadge tierKey={node.tierKey} tier={node.tier} flatBlue />
                       )}
                     </td>
                     <td className="px-4 py-3 text-xs">{node.location || "—"}</td>
