@@ -8,8 +8,14 @@ import {
   JVZOO_FIELDS,
   JVZOO_TRANSACTION_TYPES,
   APPROVED_PRODUCT_IDS,
+  isJvzooUpsellProductId,
   verifyCverify,
 } from "@/lib/jvzoo";
+import {
+  recordJvzooUpsellPurchase,
+  processPendingEntitlementsForAccount,
+  cancelOrRefundEntitlement,
+} from "@/lib/jvzooBridgeUpsells";
 
 // Phase 7: dedicated, authenticated JVZoo server-to-server onboarding
 // webhook (JVZIPN v2). Completely separate from the admin-only
@@ -126,6 +132,33 @@ export async function POST(request) {
     return NextResponse.json({ error: "Verification failed." }, { status: 403 });
   }
 
+  const email = customerEmailRaw.trim().toLowerCase();
+  if (!email || !email.includes("@")) {
+    return NextResponse.json({ error: "Invalid customer email." }, { status: 400 });
+  }
+
+  const db = getDb();
+
+  // JVZOO-BRIDGE-UPSELL batch: 452855/452859 are handled entirely by
+  // this dedicated branch, BEFORE the APPROVED_PRODUCT_IDS (front-end
+  // base-access product) gate below -- they are deliberately NOT in
+  // APPROVED_PRODUCT_IDS (that set is reserved for base-access
+  // provisioning only) and would otherwise be rejected as
+  // "not approved for provisioning." Reuses the SAME cverify
+  // verification already performed above -- no second/parallel webhook.
+  if (isJvzooUpsellProductId(productId)) {
+    if (transactionType === JVZOO_TRANSACTION_TYPES.RFND) {
+      return handleUpsellRefund({ db, transactionId, productId });
+    }
+    if (
+      transactionType !== JVZOO_TRANSACTION_TYPES.SALE &&
+      transactionType !== JVZOO_TRANSACTION_TYPES.BILL
+    ) {
+      return NextResponse.json({ ok: true, processed: false, reason: "Unhandled transaction type." });
+    }
+    return handleUpsellPurchase({ db, email, productId, transactionId, date });
+  }
+
   // Only the approved Smart Income System front-end product provisions
   // base access. Any other product ID is verified-but-irrelevant to us
   // (e.g. an unrelated JVZoo product using the same seller account) --
@@ -135,13 +168,6 @@ export async function POST(request) {
   if (!APPROVED_PRODUCT_IDS.has(String(productId))) {
     return NextResponse.json({ ok: true, processed: false, reason: "Product not approved for provisioning." });
   }
-
-  const email = customerEmailRaw.trim().toLowerCase();
-  if (!email || !email.includes("@")) {
-    return NextResponse.json({ error: "Invalid customer email." }, { status: 400 });
-  }
-
-  const db = getDb();
 
   // REFUND: dedicated branch, dedicated idempotency namespace (see the
   // long comment above this function) -- deliberately NOT run through
@@ -558,4 +584,80 @@ function recordNonDisablingRefund({ db, accountId, transactionId, productId, dat
   }
 
   return NextResponse.json({ ok: true, processed: true, disabled: false });
+}
+
+// ---- JVZoo Bridge upsell handling (452855 / 452859) -------------------
+//
+// ACCOUNT MATCHING: reuses the EXACT SAME lookup the rest of this file
+// already uses for an existing Smart Income System customer --
+// `SELECT id FROM accounts WHERE email = ?` (see existingAccount above
+// in the main SALE/BILL path) -- never a duplicate customer account is
+// created for an upsell. If no account exists yet for this email (the
+// BUY notification for the upsell arrived before -- or without -- the
+// matching front-end account), the purchase is still durably recorded
+// (account_id left NULL, customer_email captured) rather than lost;
+// lib/jvzooBridgeUpsells.js#runJvzooUpsellReconciliationScan backfills
+// account_id and grants automatically once the account exists.
+function handleUpsellPurchase({ db, email, productId, transactionId, date }) {
+  const account = db.prepare(`SELECT id, isp_status FROM accounts WHERE email = ?`).get(email);
+
+  const record = recordJvzooUpsellPurchase(db, {
+    accountId: account ? account.id : null,
+    email,
+    productId,
+    transactionId,
+    purchasedAt: date,
+  });
+
+  if (!record.created) {
+    // duplicate_transaction (idempotent replay) or
+    // already_purchased_or_duplicate (this account already owns this
+    // exact upsell product -- "each upsell only once per customer") --
+    // either way, acknowledge without creating anything new.
+    return NextResponse.json({ ok: true, processed: false, reason: record.reason });
+  }
+
+  // CASE B: ISP is already final active -- grant immediately as part of
+  // processing this purchase, rather than waiting on a later ISP event.
+  if (account) {
+    try {
+      processPendingEntitlementsForAccount(db, account.id);
+    } catch (err) {
+      // Never fail the webhook response over a grant-processing error --
+      // the entitlement row is already durably recorded (pending), and
+      // the background reconciliation scan will retry it.
+      console.error("[jvzoo] upsell immediate-grant processing failed:", err);
+    }
+  }
+
+  return NextResponse.json({ ok: true, processed: true, entitlementId: record.id });
+}
+
+// Refund handling for the two upsell products. Matched STRICTLY by this
+// refund's own transaction_id against the entitlement it refers to
+// (never by email/tier/"latest Bridge") -- see
+// lib/jvzooBridgeUpsells.js#cancelOrRefundEntitlement for the exact
+// pending-vs-granted branching and the exact-owned_node_id removal
+// guarantee. This path NEVER disables the account (that behavior is
+// reserved exclusively for a refund of the front-end base-access
+// product, handled entirely by handleRefund() above -- completely
+// separate code path, never reached for 452855/452859).
+function handleUpsellRefund({ db, transactionId, productId }) {
+  const result = cancelOrRefundEntitlement(db, { transactionId, productId });
+  if (!result.matched) {
+    return NextResponse.json({
+      ok: true,
+      processed: false,
+      reason:
+        result.reason === "product_id_mismatch"
+          ? "Refund product_id does not match the entitlement's recorded product_id."
+          : "No upsell entitlement matches this refund transaction.",
+    });
+  }
+  return NextResponse.json({
+    ok: true,
+    processed: true,
+    productId: String(productId),
+    action: result.action || (result.alreadyProcessed ? "already_processed" : "no_action"),
+  });
 }
