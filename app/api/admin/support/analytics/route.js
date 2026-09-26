@@ -10,6 +10,7 @@ import {
   computeModule10RefundAnalytics,
   computeIspRetention,
   computeAutomatedMessageAnalytics,
+  computeOtherStateAnalytics,
 } from "@/lib/supportAnalytics";
 
 // Admin-only, server-side aggregate Analytics for the Support "Analytics"
@@ -194,6 +195,9 @@ export async function GET(request) {
   // ---- TASK 5: Automated Support Messages analytics ----
   const automatedMessages = computeAutomatedMessageAnalytics(db, range);
 
+  // ---- OTHER-STATE-ISP batch: Other State / Region analytics ----
+  const otherStateAnalytics = computeOtherStateAnalytics(db, range);
+
   return NextResponse.json({
     totalMembers,
     loggedInAtLeastOnce,
@@ -223,5 +227,6 @@ export async function GET(request) {
     module10Refunds,
     ispRetention,
     automatedMessages,
+    otherStateAnalytics,
   });
 }

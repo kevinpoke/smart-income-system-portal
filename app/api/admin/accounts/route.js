@@ -64,7 +64,7 @@ const UPSELL_COLUMN = "upsell_purchased";
 const ACCOUNT_SELECT_COLUMNS = `id, email, name, first_name, last_name, must_change_password, role, account_status, created_at,
               first_login_at, last_login_at, waitlist_joined_at,
               isp_status, isp_submitted_at, isp_approved_at, user_authorized_at, node_connected_at,
-              isp_city, isp_state,
+              isp_city, isp_state, isp_state_is_other, isp_state_other_text,
               current_balance_cents, lifetime_earnings_cents, modules_unlocked, wifi_enabled, auth_mode`;
 
 // Primary Node tier per the PRIMARY NODE RULE (lib/ownedNodes.js): the
@@ -374,6 +374,12 @@ export async function GET(request) {
         wifiEnabled: Boolean(a.wifi_enabled),
         ispCity: a.isp_city,
         ispState: a.isp_state,
+        // OTHER-STATE-ISP batch: explicit flag + typed text so the User
+        // Management table can render "Other — Ontario" (see
+        // components/admin/LocationCell.js) instead of the raw sentinel
+        // isp_state="OTHER".
+        ispStateIsOther: Boolean(a.isp_state_is_other),
+        ispStateOtherText: a.isp_state_other_text || null,
         primaryNodeTier: a.primary_node_tier || null,
         primaryNodeTierKey: a.primary_node_tier ? displayNameToTierKey(a.primary_node_tier) : null,
         nodeCount: a.node_count || 0,

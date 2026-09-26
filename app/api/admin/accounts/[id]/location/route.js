@@ -83,11 +83,26 @@ export async function PATCH(request, { params }) {
 
   db.exec("BEGIN");
   try {
-    db.prepare(`UPDATE accounts SET isp_city = ?, isp_state = ? WHERE id = ?`).run(
-      normalizedCity,
-      normalizedState,
-      targetId
-    );
+    // OTHER-STATE-ISP batch (post-review fix): the legacy inline State
+    // editor only ever writes a REAL two-letter US_STATES code (enforced
+    // by isValidStateCode above) -- it has no way to express "Other" or
+    // a typed region. Without this, an admin using this editor on an
+    // Other-flagged account would silently leave isp_state_is_other=1 /
+    // isp_state_other_text='<stale region>' behind while isp_state now
+    // shows a real state code -- an inconsistent, corrupted combination
+    // (confirmed live during E2E verification). Per spec section 3
+    // ("stays attached unless an Admin/customer explicitly changes the
+    // ISP setup later"), an admin explicitly setting a real State via
+    // this editor for ANY customer -- Other-flagged or not -- IS that
+    // explicit change, so the Other marker is cleared here every time.
+    // This is the smallest safe fix: it does not add Other/typed-region
+    // editing support to this legacy editor (which would require a
+    // larger redesign) -- it just guarantees the editor can never leave
+    // isp_state_is_other/isp_state_other_text stale or contradicting the
+    // isp_state it just wrote.
+    db.prepare(
+      `UPDATE accounts SET isp_city = ?, isp_state = ?, isp_state_is_other = 0, isp_state_other_text = NULL WHERE id = ?`
+    ).run(normalizedCity, normalizedState, targetId);
     db.prepare(
       `INSERT INTO audit_log (id, admin_account_id, target_account_id, action, before_json, after_json, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`

@@ -421,6 +421,89 @@ export default function AnalyticsPanel() {
         </div>
       )}
 
+      {data?.otherStateAnalytics && (
+        <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-3 text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+            Other State / Region Users
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <StatCard label="Other State Users" value={data.otherStateAnalytics.totalOtherUsers} />
+            <StatCard
+              label="ISP Setup Completed"
+              value={data.otherStateAnalytics.ispSetupCompleted}
+              sub={`${data.otherStateAnalytics.ispSetupCompletionPct}% of Other users`}
+            />
+            <StatCard
+              label="Front-End Refunded Users"
+              value={data.otherStateAnalytics.feRefundedUsers}
+              sub={`${data.otherStateAnalytics.feRefundRatePct}% of Other users`}
+            />
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3.5">
+              <div className="text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+                ISP Setup Completion Rate
+              </div>
+              <div className="mt-1 text-2xl font-bold text-emerald-400">
+                {data.otherStateAnalytics.ispSetupCompletionPct}%
+              </div>
+            </div>
+            <div className="rounded-xl border border-red-400/20 bg-red-400/[0.06] p-3.5">
+              <div className="text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+                Refund Rate
+              </div>
+              <div className="mt-1 text-2xl font-bold text-red-400">
+                {data.otherStateAnalytics.feRefundRatePct}%
+              </div>
+            </div>
+          </div>
+
+          {data.otherStateAnalytics.regionBreakdown?.length > 0 && (
+            <div className="mt-4">
+              <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+                Typed State / Region Breakdown
+              </div>
+              <div className="overflow-x-auto rounded-lg border border-white/5">
+                {/* OTHER-STATE-ISP batch (post-review fix): mirrors the
+                    min-w-[...] + overflow-x-auto pattern every other wide
+                    admin table in this app already uses (see
+                    app/(portal)/admin/page.js, isp-approvals/page.js,
+                    never-logged-in/page.js) -- without a fixed min-width,
+                    a narrow/mobile viewport squishes 5 columns into the
+                    container width instead of scrolling horizontally,
+                    which was confirmed during E2E verification to wrap
+                    "Typed State / Region" onto two lines and crowd the
+                    other headers illegibly. min-w-[480px] keeps every
+                    header on one line at the smallest supported viewport
+                    while still fitting comfortably on desktop. */}
+                <table className="w-full min-w-[480px] text-left text-[11px] whitespace-nowrap">
+                  <thead>
+                    <tr className="bg-white/[0.03] text-[#707070]">
+                      <th className="px-3 py-2 font-medium">Typed State / Region</th>
+                      <th className="px-3 py-2 font-medium">Users</th>
+                      <th className="px-3 py-2 font-medium">ISP Completed</th>
+                      <th className="px-3 py-2 font-medium">Refunded</th>
+                      <th className="px-3 py-2 font-medium">Refund Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.otherStateAnalytics.regionBreakdown.map((r) => (
+                      <tr key={r.region} className="border-t border-white/5 text-white">
+                        <td className="px-3 py-2">{r.region}</td>
+                        <td className="px-3 py-2">{r.users}</td>
+                        <td className="px-3 py-2">{r.completed}</td>
+                        <td className="px-3 py-2">{r.refunded}</td>
+                        <td className="px-3 py-2">{r.refundRatePct}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="text-[11px] font-medium uppercase tracking-wide text-[#707070]">

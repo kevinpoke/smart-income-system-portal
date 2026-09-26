@@ -3,7 +3,13 @@ import { getDb } from "@/lib/db";
 import { getCurrentAccountRaw, toPublicAccount } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
 import { generateId } from "@/lib/auth-crypto";
-import { normalizeCity, normalizeState, isValidStateCode } from "@/lib/locationNormalize";
+import {
+  normalizeCity,
+  normalizeState,
+  isValidStateCode,
+  normalizeOtherStateText,
+  OTHER_STATE_CODE,
+} from "@/lib/locationNormalize";
 
 const REQUIRED_FIELDS = ["provider", "street", "city", "state", "zip", "ssid", "password"];
 
@@ -16,14 +22,20 @@ function validate(body) {
   if (body.zip.trim().length < 3 || body.zip.trim().length > 12) {
     return "Zip code looks invalid.";
   }
-  // State validated against the SAME canonical two-letter US_STATES set
-  // the admin location editor uses (lib/locationNormalize.js
-  // isValidStateCode) -- "validate the accepted state format
-  // consistently on both client and server." The customer-facing <select>
-  // already only ever submits one of these codes, so this rejects any
-  // tampered/non-standard value rather than silently storing it.
-  if (!isValidStateCode(normalizeState(body.state))) {
+  // OTHER-STATE-ISP batch: the State selector now also accepts the
+  // literal string "Other" (normalizeState uppercases -> "OTHER",
+  // matching OTHER_STATE_CODE) as a valid selection alongside every
+  // real two-letter US_STATES code. When Other is selected, the
+  // customer's typed "State / Region" free-text value is REQUIRED and
+  // must be non-empty after trimming -- validated here so the server
+  // never trusts a client-side-only check.
+  const normalizedState = normalizeState(body.state);
+  const isOther = normalizedState === OTHER_STATE_CODE;
+  if (!isOther && !isValidStateCode(normalizedState)) {
     return "State must be a valid two-letter US state code.";
+  }
+  if (isOther && !normalizeOtherStateText(body.stateOther).length) {
+    return "Please enter your state, province, region, or territory.";
   }
   return null;
 }
@@ -86,9 +98,16 @@ export async function POST(request) {
   // City/state are normalized via the SAME shared utility the admin
   // location editor uses (lib/locationNormalize.js) -- "do not maintain
   // separate formatting logic in multiple routes." Title-cased,
-  // whitespace-collapsed city; uppercased two-letter state.
+  // whitespace-collapsed city; uppercased two-letter state (or the
+  // OTHER_STATE_CODE sentinel when the customer selected Other).
   const city = normalizeCity(body.city);
   const state = normalizeState(body.state);
+  const isOther = state === OTHER_STATE_CODE;
+  // OTHER-STATE-ISP batch: the customer's exact typed value, trimmed
+  // only (never title-cased/rewritten) -- null (never empty string) for
+  // a normal State selection, matching the explicit isp_state_is_other
+  // flag written below.
+  const stateOtherText = isOther ? normalizeOtherStateText(body.stateOther) : null;
   const zip = body.zip.trim();
   const ssid = body.ssid.trim();
   // WiFi password is intentionally NOT captured into a variable used
@@ -96,9 +115,21 @@ export async function POST(request) {
   const now = new Date().toISOString();
 
   db.prepare(
-    `INSERT INTO isp_setups (id, account_id, provider, street, city, state, zip, ssid, submitted_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(generateId("isp"), account.id, provider, street, city, state, zip, ssid, now);
+    `INSERT INTO isp_setups (id, account_id, provider, street, city, state, zip, ssid, submitted_at, state_is_other, state_other_text)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    generateId("isp"),
+    account.id,
+    provider,
+    street,
+    city,
+    state,
+    zip,
+    ssid,
+    now,
+    isOther ? 1 : 0,
+    stateOtherText
+  );
 
   db.prepare(
     `UPDATE accounts
@@ -108,9 +139,11 @@ export async function POST(request) {
          isp_state = ?,
          isp_zip = ?,
          isp_status = 'pending_review',
-         isp_submitted_at = COALESCE(isp_submitted_at, ?)
+         isp_submitted_at = COALESCE(isp_submitted_at, ?),
+         isp_state_is_other = ?,
+         isp_state_other_text = ?
      WHERE id = ?`
-  ).run(provider, street, city, state, zip, now, account.id);
+  ).run(provider, street, city, state, zip, now, isOther ? 1 : 0, stateOtherText, account.id);
 
   const updated = db.prepare(`SELECT * FROM accounts WHERE id = ?`).get(account.id);
 

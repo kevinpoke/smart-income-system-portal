@@ -17,11 +17,32 @@ export default function LocationCell({ account, field, onSaved }) {
   const isCity = field === "city";
   const currentValue = isCity ? account.ispCity : account.ispState;
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(currentValue || "");
+  // OTHER-STATE-ISP batch (post-review fix): the State editor's draft
+  // must never start pre-filled with the raw "OTHER" sentinel -- that
+  // string is meaningless to an admin and isn't a valid two-letter code
+  // this editor could re-save anyway. Starting blank instead makes it
+  // obvious a real State needs to be typed; the "Will save as:" preview
+  // and the warning below (rendered only for the State field on an
+  // Other-flagged account) explain the consequence before they click Save.
+  const [draft, setDraft] = useState(!isCity && account.ispStateIsOther ? "" : currentValue || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const preview = isCity ? normalizeCity(draft) : normalizeState(draft);
+
+  // OTHER-STATE-ISP batch: minimal, read-only display enhancement for
+  // the State column only -- when the customer selected Other, show
+  // "Other — <typed region>" instead of the raw stored sentinel
+  // ("OTHER"), so an admin can immediately tell (a) this was an Other
+  // selection and (b) exactly what they typed, without opening the
+  // inline editor. Does not change the City column, does not change
+  // what value the inline editor loads/saves (still the raw isp_state
+  // sentinel, matching the existing admin location-edit contract), and
+  // never rewrites any stored value -- purely a display-time label.
+  const displayValue =
+    !isCity && account.ispStateIsOther
+      ? `Other — ${account.ispStateOtherText || "(no region entered)"}`
+      : currentValue;
 
   async function handleSave() {
     setError("");
@@ -76,7 +97,7 @@ export default function LocationCell({ account, field, onSaved }) {
           <button
             onClick={() => {
               setEditing(false);
-              setDraft(currentValue || "");
+              setDraft(!isCity && account.ispStateIsOther ? "" : currentValue || "");
               setError("");
             }}
             className="text-[10px] text-[#707070] hover:text-white"
@@ -84,6 +105,12 @@ export default function LocationCell({ account, field, onSaved }) {
             Cancel
           </button>
         </div>
+        {!isCity && account.ispStateIsOther && (
+          <div className="text-[10px] text-amber-400">
+            This customer selected &ldquo;Other&rdquo; ({account.ispStateOtherText || "no region entered"}).
+            Saving a State here will replace it and clear the Other marker.
+          </div>
+        )}
         {draft && preview !== draft && (
           <div className="text-[10px] text-[#707070]">Will save as: {preview}</div>
         )}
@@ -98,7 +125,7 @@ export default function LocationCell({ account, field, onSaved }) {
       className="text-xs text-[#B0B0B0] underline decoration-dotted hover:text-white"
       title={`Click to edit ${isCity ? "city" : "state"}`}
     >
-      {currentValue || "—"}
+      {displayValue || "—"}
     </button>
   );
 }

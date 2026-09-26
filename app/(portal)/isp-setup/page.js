@@ -7,6 +7,7 @@ import { useHasMounted } from "@/lib/useHasMounted";
 import { notifyAccountChanged } from "@/lib/accountEvents";
 import { useSteppedConnectionProgress } from "@/lib/useSteppedConnectionProgress";
 import { ISP_PROVIDERS, US_STATES, formatCountdown, ISP_AUTO_APPROVE_AFTER_MS } from "@/lib/mockData";
+import { OTHER_STATE_CODE } from "@/lib/locationNormalize";
 import {
   GlassCard,
   SectionTitle,
@@ -117,6 +118,7 @@ export default function IspSetupPage() {
     street: "",
     city: "",
     state: "",
+    stateOther: "",
     zip: "",
     ssid: "",
     password: "",
@@ -441,6 +443,7 @@ export default function IspSetupPage() {
                           {s}
                         </option>
                       ))}
+                      <option value={OTHER_STATE_CODE}>Other</option>
                     </select>
                   </Field>
                   <Field label="Zip">
@@ -453,6 +456,19 @@ export default function IspSetupPage() {
                     />
                   </Field>
                 </div>
+                {form.state === OTHER_STATE_CODE && (
+                  <div className="sm:col-span-2">
+                    <Field label="State / Region">
+                      <input
+                        required
+                        className={inputClass}
+                        value={form.stateOther}
+                        onChange={(e) => update("stateOther", e.target.value)}
+                        placeholder="Enter your state, province, region, or territory"
+                      />
+                    </Field>
+                  </div>
+                )}
               </div>
             </div>
 
