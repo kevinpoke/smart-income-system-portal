@@ -4,6 +4,7 @@ import { getCurrentAccountRaw } from "@/lib/session";
 import { computePayoutEstimates } from "@/lib/payoutsEngine";
 import { getPayoutTargetAt } from "@/lib/earningsEngine";
 import { hasPayoutsNodesAccess, hasPayoutsTabModule6Access } from "@/lib/moduleAccess";
+import { displayLocationState } from "@/lib/locationNormalize";
 
 // Authenticated customer's payout estimate rows. Purely derived from the
 // account id (for the seed) -- these are demo/marketing figures only and
@@ -83,7 +84,7 @@ export async function GET() {
   // page's "Average Payout for {location}" heading.
   const location =
     account.isp_city && account.isp_state
-      ? account.isp_state
+      ? displayLocationState(account)
       : null;
 
   const unlocked = hasPayoutsNodesAccess(account);

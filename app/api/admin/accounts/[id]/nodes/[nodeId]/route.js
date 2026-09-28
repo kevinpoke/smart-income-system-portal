@@ -127,15 +127,20 @@ export async function PATCH(request, { params }) {
 // (scoped identically to PATCH above via `WHERE id = ? AND account_id
 // = ? AND removed_at IS NULL`).
 //
-// EARNINGS/HISTORY GUARANTEE: this route never writes to
-// ledger_entries and never calls recomputeBalances() -- removing a
+// EARNINGS/HISTORY GUARANTEE (BRIDGE-REMOVAL-EARNINGS batch): removing a
 // Node stops FUTURE accrual (every active-Node query in
 // lib/ownedNodes.js / lib/earningsEngine.js now filters `removed_at IS
 // NULL`, so the very next earnings catch-up simply stops including
-// this Node) without subtracting a single cent of what the account has
-// already earned. The account's current_balance_cents/
-// lifetime_earnings_cents (already-accrued totals) are computed purely
-// from ledger_entries, none of which this route touches.
+// this Node) AND now also voids that exact Bridge's OWN past earnings
+// via removeOwnedNode() -> voidBridgeEarningsForRemoval() (see
+// lib/earningsEngine.js) -- current_balance_cents/lifetime_earnings_cents
+// are recomputed immediately from the resulting ledger state. Every
+// OTHER Bridge's earnings are completely untouched (attribution is by
+// exact node_id match only, never estimated/split). This route itself
+// still never writes to ledger_entries directly -- all ledger writes
+// happen inside removeOwnedNode()'s call to the shared void helper, so
+// there is exactly one accounting implementation for every removal
+// path (this admin route, Oto1/Oto2 refunds).
 export async function DELETE(request, { params }) {
   if (!isSameOrigin(request)) {
     return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
@@ -204,6 +209,7 @@ export async function DELETE(request, { params }) {
       }),
       JSON.stringify({
         removedAt: result.removedAt,
+        voidedEarningsCents: result.voidedEarningsCents,
       }),
       result.removedAt
     );
@@ -222,6 +228,7 @@ export async function DELETE(request, { params }) {
       tier: result.tier,
       tierKey: result.tierKey,
       removedAt: result.removedAt,
+      voidedEarningsCents: result.voidedEarningsCents,
     },
   });
 }

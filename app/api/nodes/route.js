@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentAccountRaw } from "@/lib/session";
 import { computeNodes } from "@/lib/nodesEngine";
 import { hasPayoutsNodesAccess } from "@/lib/moduleAccess";
+import { displayLocationState } from "@/lib/locationNormalize";
 
 // Authenticated customer's demo Node inventory. Deterministic per account
 // id -- never Math.random() at render/request time, never written to the
@@ -28,7 +29,9 @@ export async function GET() {
   }
 
   const realLocation =
-    account.isp_city && account.isp_state ? `${account.isp_city}, ${account.isp_state}` : null;
+    account.isp_city && account.isp_state
+      ? `${account.isp_city}, ${displayLocationState(account)}`
+      : null;
   const unlocked = hasPayoutsNodesAccess(account);
 
   if (!unlocked) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { normalizeCity, normalizeState } from "@/lib/locationNormalize";
+import { normalizeCity, displayLocationState, resolveAdminStateInput } from "@/lib/locationNormalize";
 
 // Inline click-to-edit City/State cell for the User Management table.
 // Mirrors the existing "click email to edit" pattern in AccountRow
@@ -13,47 +13,49 @@ import { normalizeCity, normalizeState } from "@/lib/locationNormalize";
 // is cosmetic only; the value actually persisted is whatever the server
 // computes from its own independent call to the same normalizer, never
 // trusted from the client.
+//
+// CUSTOM-LOCATION-DISPLAY + ADMIN-CUSTOM-LOCATION-EDITING batch: the
+// State field is no longer restricted to a two-letter US code -- Admin
+// may type ANY custom region ("Panama", "British Columbia", "Hong
+// Kong"). The displayed value (both the closed-cell label and the
+// editor's starting draft) is now the SAME text a customer/Analytics-
+// excluded surface would see -- via the shared
+// lib/locationNormalize.js#displayLocationState() helper -- never the
+// old "Other — <region>" hybrid label and never the raw "OTHER"
+// sentinel.
 export default function LocationCell({ account, field, onSaved }) {
   const isCity = field === "city";
-  const currentValue = isCity ? account.ispCity : account.ispState;
+  const currentDisplayValue = isCity ? account.ispCity : displayLocationState(account);
   const [editing, setEditing] = useState(false);
-  // OTHER-STATE-ISP batch (post-review fix): the State editor's draft
-  // must never start pre-filled with the raw "OTHER" sentinel -- that
-  // string is meaningless to an admin and isn't a valid two-letter code
-  // this editor could re-save anyway. Starting blank instead makes it
-  // obvious a real State needs to be typed; the "Will save as:" preview
-  // and the warning below (rendered only for the State field on an
-  // Other-flagged account) explain the consequence before they click Save.
-  const [draft, setDraft] = useState(!isCity && account.ispStateIsOther ? "" : currentValue || "");
+  const [draft, setDraft] = useState(currentDisplayValue || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const preview = isCity ? normalizeCity(draft) : normalizeState(draft);
-
-  // OTHER-STATE-ISP batch: minimal, read-only display enhancement for
-  // the State column only -- when the customer selected Other, show
-  // "Other — <typed region>" instead of the raw stored sentinel
-  // ("OTHER"), so an admin can immediately tell (a) this was an Other
-  // selection and (b) exactly what they typed, without opening the
-  // inline editor. Does not change the City column, does not change
-  // what value the inline editor loads/saves (still the raw isp_state
-  // sentinel, matching the existing admin location-edit contract), and
-  // never rewrites any stored value -- purely a display-time label.
-  const displayValue =
-    !isCity && account.ispStateIsOther
-      ? `Other — ${account.ispStateOtherText || "(no region entered)"}`
-      : currentValue;
+  // Live preview of what the server will actually store/display, using
+  // the SAME resolution logic the server applies (resolveAdminStateInput
+  // for State, normalizeCity for City) -- cosmetic only, never trusted
+  // as the persisted value.
+  const statePreviewResolution = !isCity ? resolveAdminStateInput(draft) : null;
+  const preview = isCity
+    ? normalizeCity(draft)
+    : statePreviewResolution?.valid
+      ? statePreviewResolution.value
+      : draft;
+  const previewWillBeOther = !isCity && Boolean(statePreviewResolution?.isOther);
 
   async function handleSave() {
     setError("");
     // Both city and state are sent together (even though this cell only
     // edits one of the two) because the admin location API updates both
-    // columns atomically -- reuse the account's OTHER current value for
-    // the field not being edited right now, so a City-only edit doesn't
-    // accidentally send an empty/undefined State (and vice versa).
+    // columns atomically -- reuse the account's OTHER current DISPLAY
+    // value for the field not being edited right now (never the raw
+    // isp_state sentinel), so a City-only edit re-submits the State's
+    // real displayed text (a canonical code or the customer/admin's own
+    // typed custom region) rather than accidentally reverting it.
+    const otherFieldDisplayValue = isCity ? displayLocationState(account) : account.ispCity || "";
     const body = isCity
-      ? { city: draft, state: account.ispState || "" }
-      : { city: account.ispCity || "", state: draft };
+      ? { city: draft, state: otherFieldDisplayValue }
+      : { city: otherFieldDisplayValue, state: draft };
 
     setSaving(true);
     try {
@@ -85,7 +87,8 @@ export default function LocationCell({ account, field, onSaved }) {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             aria-label={`${isCity ? "City" : "State"} for ${account.email}`}
-            className="w-24 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
+            placeholder={isCity ? "Austin" : "CA, or Panama, Ontario, Hong Kong..."}
+            className="w-32 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white outline-none focus:ring-1 focus:ring-[#32B5FF]"
           />
           <button
             onClick={handleSave}
@@ -97,7 +100,7 @@ export default function LocationCell({ account, field, onSaved }) {
           <button
             onClick={() => {
               setEditing(false);
-              setDraft(!isCity && account.ispStateIsOther ? "" : currentValue || "");
+              setDraft(currentDisplayValue || "");
               setError("");
             }}
             className="text-[10px] text-[#707070] hover:text-white"
@@ -105,14 +108,14 @@ export default function LocationCell({ account, field, onSaved }) {
             Cancel
           </button>
         </div>
-        {!isCity && account.ispStateIsOther && (
-          <div className="text-[10px] text-amber-400">
-            This customer selected &ldquo;Other&rdquo; ({account.ispStateOtherText || "no region entered"}).
-            Saving a State here will replace it and clear the Other marker.
-          </div>
-        )}
         {draft && preview !== draft && (
           <div className="text-[10px] text-[#707070]">Will save as: {preview}</div>
+        )}
+        {previewWillBeOther && (
+          <div className="text-[10px] text-amber-400">
+            This isn&rsquo;t a standard US state code, so it will be saved as a custom
+            region (classified as &ldquo;Other&rdquo; in Analytics only).
+          </div>
         )}
         {error && <div className="text-[10px] text-red-400">{error}</div>}
       </div>
@@ -125,7 +128,7 @@ export default function LocationCell({ account, field, onSaved }) {
       className="text-xs text-[#B0B0B0] underline decoration-dotted hover:text-white"
       title={`Click to edit ${isCity ? "city" : "state"}`}
     >
-      {displayValue || "—"}
+      {currentDisplayValue || "—"}
     </button>
   );
 }

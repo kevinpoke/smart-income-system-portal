@@ -23,6 +23,23 @@ function displayName(row) {
   return "—";
 }
 
+// AWEBER-3DAY-NO-LOGIN-SYNC batch: minimal status-badge mapping (spec
+// section 23 -- "Do NOT redesign the page"). null/undefined (no sync
+// row created yet) reads as "Pending" since the scheduler simply
+// hasn't picked this account up on a tick yet.
+const AWEBER_STATUS_LABEL = {
+  complete: "Moved",
+  pending: "Pending",
+  partial: "Pending",
+  error: "Error",
+};
+const AWEBER_STATUS_CLASS = {
+  complete: "text-green-400",
+  pending: "text-[#707070]",
+  partial: "text-amber-400",
+  error: "text-red-400",
+};
+
 export default function NeverLoggedInPage() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -33,6 +50,11 @@ export default function NeverLoggedInPage() {
   const [status, setStatus] = useState("loading"); // loading | ready | error
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
+  // AWEBER-3DAY-NO-LOGIN-SYNC batch: tracks which single row currently
+  // has a manual retry in flight (never more than one at a time per
+  // row -- the button disables itself while its own accountId is in
+  // this set).
+  const [retryingIds, setRetryingIds] = useState(() => new Set());
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
@@ -115,6 +137,30 @@ export default function NeverLoggedInPage() {
     }
   }
 
+  // AWEBER-3DAY-NO-LOGIN-SYNC batch: manual per-row retry (spec section
+  // 23). Calls the SAME canonical sync function the scheduler uses via
+  // a thin admin-only route -- reloads the current page afterward so
+  // the status column reflects the outcome immediately.
+  async function handleRetryAweberSync(accountId) {
+    if (retryingIds.has(accountId)) return;
+    setRetryingIds((prev) => new Set(prev).add(accountId));
+    try {
+      await fetch(`/api/admin/never-logged-in/${accountId}/retry-aweber-sync`, {
+        method: "POST",
+      });
+      await load();
+    } catch {
+      // Swallow -- the row's status column simply won't have changed;
+      // the admin can retry again.
+    } finally {
+      setRetryingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(accountId);
+        return next;
+      });
+    }
+  }
+
   return (
     <GlassCard className="p-5">
       <div className="mb-4 flex items-center gap-2">
@@ -179,19 +225,20 @@ export default function NeverLoggedInPage() {
               <th className="px-3 py-3">Joined Date</th>
               <th className="px-3 py-3">First Login</th>
               <th className="px-3 py-3">Qualified Date</th>
+              <th className="px-3 py-3">AWeber Status</th>
             </tr>
           </thead>
           <tbody>
             {status === "loading" && (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-xs text-[#707070]">
+                <td colSpan={5} className="px-3 py-6 text-center text-xs text-[#707070]">
                   Loading…
                 </td>
               </tr>
             )}
             {status === "ready" && rows.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-xs text-[#707070]">
+                <td colSpan={5} className="px-3 py-6 text-center text-xs text-[#707070]">
                   No accounts match this search.
                 </td>
               </tr>
@@ -217,6 +264,25 @@ export default function NeverLoggedInPage() {
                     )}
                   </td>
                   <td className="px-3 py-3 text-xs">{formatAdminDateTime(row.qualifiedAt)}</td>
+                  <td className="px-3 py-3 text-xs">
+                    <div className={AWEBER_STATUS_CLASS[row.aweberStatus] || AWEBER_STATUS_CLASS.pending}>
+                      {AWEBER_STATUS_LABEL[row.aweberStatus] || AWEBER_STATUS_LABEL.pending}
+                    </div>
+                    {row.aweberLastSuccessAt && row.aweberStatus === "complete" && (
+                      <div className="text-[10px] text-[#707070]">
+                        {formatAdminDateTime(row.aweberLastSuccessAt)}
+                      </div>
+                    )}
+                    {(row.aweberStatus === "error" || row.aweberStatus === "partial") && (
+                      <button
+                        onClick={() => handleRetryAweberSync(row.accountId)}
+                        disabled={retryingIds.has(row.accountId)}
+                        className="mt-1 text-[10px] font-semibold text-[#32B5FF] underline decoration-dotted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {retryingIds.has(row.accountId) ? "Retrying…" : "Retry AWeber Sync"}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
           </tbody>
