@@ -12,7 +12,7 @@
 // this component moved).
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { GlassCard } from "@/components/ui/Primitives";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, ChevronDown } from "lucide-react";
 import clsx from "clsx";
 
 function formatDurationMs(ms) {
@@ -115,6 +115,13 @@ export default function AnalyticsPanel() {
   const [data, setData] = useState(null);
   const [status, setStatus] = useState("loading"); // loading | ready | error
   const [error, setError] = useState("");
+  // OTHER-STATE-REGION-COLLAPSE batch: purely presentational -- the
+  // unique State/Region breakdown table starts collapsed on every page
+  // load per spec, independent of the period/date-range selection. The
+  // summary stat cards above it (Other State Users, ISP Setup Completed,
+  // Front-End Refunded, completion/refund rate) are always visible;
+  // only the per-region table toggles.
+  const [regionBreakdownExpanded, setRegionBreakdownExpanded] = useState(false);
 
   const load = useCallback(async () => {
     setStatus((s) => (s === "ready" ? s : "loading"));
@@ -483,45 +490,71 @@ export default function AnalyticsPanel() {
 
           {data.otherStateAnalytics.regionBreakdown?.length > 0 && (
             <div className="mt-4">
-              <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-[#707070]">
-                Typed State / Region Breakdown
-              </div>
-              <div className="overflow-x-auto rounded-lg border border-white/5">
-                {/* OTHER-STATE-ISP batch (post-review fix): mirrors the
-                    min-w-[...] + overflow-x-auto pattern every other wide
-                    admin table in this app already uses (see
-                    app/(portal)/admin/page.js, isp-approvals/page.js,
-                    never-logged-in/page.js) -- without a fixed min-width,
-                    a narrow/mobile viewport squishes 5 columns into the
-                    container width instead of scrolling horizontally,
-                    which was confirmed during E2E verification to wrap
-                    "Typed State / Region" onto two lines and crowd the
-                    other headers illegibly. min-w-[480px] keeps every
-                    header on one line at the smallest supported viewport
-                    while still fitting comfortably on desktop. */}
-                <table className="w-full min-w-[480px] text-left text-[11px] whitespace-nowrap">
-                  <thead>
-                    <tr className="bg-white/[0.03] text-[#707070]">
-                      <th className="px-3 py-2 font-medium">Typed State / Region</th>
-                      <th className="px-3 py-2 font-medium">Users</th>
-                      <th className="px-3 py-2 font-medium">ISP Completed</th>
-                      <th className="px-3 py-2 font-medium">Refunded</th>
-                      <th className="px-3 py-2 font-medium">Refund Rate</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.otherStateAnalytics.regionBreakdown.map((r) => (
-                      <tr key={r.region} className="border-t border-white/5 text-white">
-                        <td className="px-3 py-2">{r.region}</td>
-                        <td className="px-3 py-2">{r.users}</td>
-                        <td className="px-3 py-2">{r.completed}</td>
-                        <td className="px-3 py-2">{r.refunded}</td>
-                        <td className="px-3 py-2">{r.refundRatePct}%</td>
+              {/* OTHER-STATE-REGION-COLLAPSE batch: collapsed by default
+                  (regionBreakdownExpanded starts false on every mount),
+                  toggled only by this button -- a real <button> (not a
+                  bare div/span) so it's keyboard-accessible (Enter/Space)
+                  and focusable out of the box, with an aria-expanded
+                  state and a rotating chevron affordance. The underlying
+                  regionBreakdown array/grouping is completely untouched
+                  (see lib/supportAnalytics.js#computeOtherStateAnalytics
+                  -- same trim+lowercase dedupe, same first-seen-cased
+                  display label) -- this only controls whether the
+                  resulting table renders. */}
+              <button
+                type="button"
+                onClick={() => setRegionBreakdownExpanded((v) => !v)}
+                aria-expanded={regionBreakdownExpanded}
+                className="flex w-full items-center justify-between gap-2 rounded-lg px-1 py-1 text-left text-[11px] font-medium uppercase tracking-wide text-[#707070] hover:text-white"
+              >
+                <span>
+                  Typed State / Region Breakdown ({data.otherStateAnalytics.regionBreakdown.length} unique)
+                </span>
+                <ChevronDown
+                  className={clsx(
+                    "h-3.5 w-3.5 flex-shrink-0 transition-transform",
+                    regionBreakdownExpanded && "rotate-180"
+                  )}
+                />
+              </button>
+              {regionBreakdownExpanded && (
+                <div className="mt-2 overflow-x-auto rounded-lg border border-white/5">
+                  {/* OTHER-STATE-ISP batch (post-review fix): mirrors the
+                      min-w-[...] + overflow-x-auto pattern every other wide
+                      admin table in this app already uses (see
+                      app/(portal)/admin/page.js, isp-approvals/page.js,
+                      never-logged-in/page.js) -- without a fixed min-width,
+                      a narrow/mobile viewport squishes 5 columns into the
+                      container width instead of scrolling horizontally,
+                      which was confirmed during E2E verification to wrap
+                      "Typed State / Region" onto two lines and crowd the
+                      other headers illegibly. min-w-[480px] keeps every
+                      header on one line at the smallest supported viewport
+                      while still fitting comfortably on desktop. */}
+                  <table className="w-full min-w-[480px] text-left text-[11px] whitespace-nowrap">
+                    <thead>
+                      <tr className="bg-white/[0.03] text-[#707070]">
+                        <th className="px-3 py-2 font-medium">Typed State / Region</th>
+                        <th className="px-3 py-2 font-medium">Users</th>
+                        <th className="px-3 py-2 font-medium">ISP Completed</th>
+                        <th className="px-3 py-2 font-medium">Refunded</th>
+                        <th className="px-3 py-2 font-medium">Refund Rate</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {data.otherStateAnalytics.regionBreakdown.map((r) => (
+                        <tr key={r.region} className="border-t border-white/5 text-white">
+                          <td className="px-3 py-2">{r.region}</td>
+                          <td className="px-3 py-2">{r.users}</td>
+                          <td className="px-3 py-2">{r.completed}</td>
+                          <td className="px-3 py-2">{r.refunded}</td>
+                          <td className="px-3 py-2">{r.refundRatePct}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>

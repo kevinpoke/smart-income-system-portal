@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
-import { Users, MessageSquare, ShieldCheck, FlaskConical, BarChart3, UserX, Megaphone } from "lucide-react";
+import { Users, MessageSquare, ShieldCheck, BarChart3, UserX, Megaphone } from "lucide-react";
 
-// Required relative order (per spec): ISP Approvals -> Test -> Analytics.
+// Required relative order (per spec): ISP Approvals -> Analytics.
 // Analytics is a peer-level top nav item now, not a Support Chats tab --
 // see app/(portal)/admin/analytics/page.js and
 // components/admin/AnalyticsPanel.js.
@@ -14,15 +14,20 @@ import { Users, MessageSquare, ShieldCheck, FlaskConical, BarChart3, UserX, Mega
 // it's a customer-lifecycle/support-follow-up tool in the same family
 // as ISP Approvals (both are "accounts needing admin attention" lists),
 // so it reads naturally as a peer of that tab rather than being buried
-// after the developer-facing Test tab or the reporting-only Analytics
-// tab.
+// after the reporting-only Analytics tab.
+//
+// ADMIN-NAV-CLEANUP batch: the developer-only "Test" tab (JVZoo purchase
+// simulator) has been removed from this nav per spec -- its route
+// (/admin/test) and page component are left in place (nothing else in
+// the app links to it, but deleting a working, self-contained dev tool
+// is out of scope for a nav-only change); it is simply no longer
+// reachable from the Admin Portal's navigation.
 const TABS = [
   { href: "/admin", label: "Users", icon: Users },
   { href: "/admin/chats", label: "Support Chats", icon: MessageSquare },
   { href: "/admin/isp-approvals", label: "ISP Approvals", icon: ShieldCheck },
   { href: "/admin/never-logged-in", label: "Never Logged In", icon: UserX },
   { href: "/admin/ai-sales", label: "AI Sales", icon: Megaphone },
-  { href: "/admin/test", label: "Test", icon: FlaskConical },
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
 ];
 

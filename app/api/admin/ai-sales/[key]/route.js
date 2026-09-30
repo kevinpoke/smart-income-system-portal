@@ -4,10 +4,12 @@ import { requireAdmin } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
 import {
   getAutomationDefinition,
+  getAutomationConditions,
   updateAutomationMessage,
   updateAutomationRule,
   setAutomationEnabled,
   getAutomationAuditLog,
+  formatMessageCode,
 } from "@/lib/automationDefinitions";
 
 export async function GET(_request, { params }) {
@@ -23,22 +25,25 @@ export async function GET(_request, { params }) {
   }
   return NextResponse.json({
     key: def.key,
+    messageCode: def.message_code,
+    messageCodeLabel: def.message_code != null ? formatMessageCode(def.message_code) : null,
     name: def.name,
     enabled: Boolean(def.enabled),
     messageBody: def.message_body,
-    triggerType: def.trigger_type,
-    triggerConfig: def.trigger_config_json ? JSON.parse(def.trigger_config_json) : {},
-    timingDirection: def.timing_direction,
+    triggerMatchMode: def.trigger_match_mode || "all",
+    conditions: getAutomationConditions(db, key),
     delayHours: def.delay_hours,
     updatedAt: def.updated_at,
     auditLog: getAutomationAuditLog(db, key),
   });
 }
 
-// PATCH body: { messageBody? , rule?: {triggerType, triggerConfig, timingDirection, delayHours}, enabled? }
+// PATCH body: { messageBody?, rule?: {triggerMatchMode, conditions, delayHours}, enabled? }
 // Each field is independently optional/updatable; edits are prospective
 // only (see lib/automationDefinitions.js -- never touches historical
-// sends/idempotency).
+// sends/idempotency). `key` and `messageCode` are NEVER accepted here --
+// both are permanent, server-assigned identities and this route has no
+// code path that can alter either.
 export async function PATCH(request, { params }) {
   if (!isSameOrigin(request)) {
     return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
@@ -86,11 +91,12 @@ export async function PATCH(request, { params }) {
   return NextResponse.json({
     ok: true,
     key: def.key,
+    messageCode: def.message_code,
+    messageCodeLabel: def.message_code != null ? formatMessageCode(def.message_code) : null,
     enabled: Boolean(def.enabled),
     messageBody: def.message_body,
-    triggerType: def.trigger_type,
-    triggerConfig: def.trigger_config_json ? JSON.parse(def.trigger_config_json) : {},
-    timingDirection: def.timing_direction,
+    triggerMatchMode: def.trigger_match_mode || "all",
+    conditions: getAutomationConditions(db, key),
     delayHours: def.delay_hours,
   });
 }
