@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
-import { Users, MessageSquare, ShieldCheck, FlaskConical, BarChart3, UserX } from "lucide-react";
+import { Users, MessageSquare, ShieldCheck, FlaskConical, BarChart3, UserX, Megaphone } from "lucide-react";
 
 // Required relative order (per spec): ISP Approvals -> Test -> Analytics.
 // Analytics is a peer-level top nav item now, not a Support Chats tab --
@@ -21,6 +21,7 @@ const TABS = [
   { href: "/admin/chats", label: "Support Chats", icon: MessageSquare },
   { href: "/admin/isp-approvals", label: "ISP Approvals", icon: ShieldCheck },
   { href: "/admin/never-logged-in", label: "Never Logged In", icon: UserX },
+  { href: "/admin/ai-sales", label: "AI Sales", icon: Megaphone },
   { href: "/admin/test", label: "Test", icon: FlaskConical },
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
 ];

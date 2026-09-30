@@ -369,6 +369,29 @@ export default function AnalyticsPanel() {
         </div>
       )}
 
+      {data?.moduleWatchAnalytics && (
+        <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-3 text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+            Module Video Watch Rate
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            {data.moduleWatchAnalytics.modules.map((m) => (
+              <div key={m.moduleKey} className="rounded-xl border border-white/10 bg-white/[0.03] p-3.5">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-[#707070]">
+                  Module {m.moduleKey}
+                </div>
+                <div className="mt-1 text-lg font-bold text-white">{m.pct}%</div>
+                <div className="mt-0.5 text-[11px] text-[#B0B0B0]">{m.watched} watched</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 text-[11px] italic text-[#707070]">
+            Denominator: {data.moduleWatchAnalytics.totalLoggedIn} total logged-in customer accounts
+            (lifetime, not affected by the selected date range).
+          </div>
+        </div>
+      )}
+
       {data?.module10Refunds && (
         <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
           <div className="mb-3 text-[11px] font-medium uppercase tracking-wide text-[#707070]">

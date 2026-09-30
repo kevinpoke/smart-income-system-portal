@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useAccount } from "@/lib/useAccount";
-import { formatCurrency, centsToDollars } from "@/lib/mockData";
+import { formatCurrency, centsToDollars, US_STATES } from "@/lib/mockData";
+import { OTHER_STATE_CODE } from "@/lib/locationNormalize";
 import { useWaitlistStatus } from "@/lib/useWaitlistStatus";
 import {
   GlassCard,
@@ -12,32 +13,115 @@ import {
 } from "@/components/ui/Primitives";
 import NodeTierBadge from "@/components/ui/NodeTierBadge";
 import FluctuatingEarnings from "@/components/ui/FluctuatingEarnings";
-import { Server, Zap, Clock3, CheckCircle2, Sparkles } from "lucide-react";
+import { Server, Zap, Clock3, CheckCircle2, Sparkles, ImageOff } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
-// Waitlist redesign batch (spec sections E/G): EXACT customer-facing
-// copy, paragraph breaks preserved verbatim. Never materially rewrite --
-// only this file references these two strings.
-const PRE_JOIN_COPY = [
-  "If you would like to purchase additional Bridges to increase your earning potential, please join our waitlist.",
-  "At this time, all available Bridges have been allocated and we do not have any additional Bridges available for purchase.",
-  "As new data Bridges are added to our system, eligible members will be selected from the waitlist through a lottery system. This process is designed to give everyone on the waitlist a fair opportunity to purchase additional Bridges.",
-  "If you are selected, a member of our team will contact you directly through the Support area with availability and next steps.",
-];
+// BRIDGES-REDESIGN batch: exact required headline/CTA/messages, preserved
+// verbatim -- only this file references these strings.
+const SOLD_OUT_HEADLINE = "All Bridges are Currently Sold Out!";
+const JOIN_SUCCESS_MESSAGE =
+  "You have joined the waitlist! If you are selected through our waitlist lottery system, you will have a chance to purchase and add additional bridges to your account.";
+const JOINED_BANNER_MESSAGE =
+  "You have joined the Waitlist! If selected, your dedicated support member will reach out to you with bridge availability.";
 
-const CONFIRMATION_COPY = [
-  "You\u2019re on the Waitlist!",
-  "As new Bridges become available, members will be selected through our lottery system to ensure everyone has a fair opportunity.",
-  "If you are selected, our team will contact you directly through the Support area of your account with availability and next steps.",
-  "No further action is required at this time.",
-];
+// PART I (future video support): no video yet -- a clean, swappable
+// placeholder. A future video just replaces this block with a player
+// component; nothing else in this file needs to change.
+function SoldOutPlaceholder() {
+  return (
+    <div className="flex aspect-video flex-col items-center justify-center gap-3 rounded-xl bg-gradient-to-br from-[#1c2a33] to-[#0e1a20] px-6 text-center">
+      <ImageOff className="h-12 w-12 text-[#32B5FF]" />
+      <h2 className="text-lg font-bold text-white sm:text-xl">{SOLD_OUT_HEADLINE}</h2>
+    </div>
+  );
+}
 
-// Pre-join popup/overlay: large, prominent, centered over the (still
-// visible-but-darkened) Bridge inventory behind it. The green "Join
-// Waitlist" CTA is the dominant action per spec section F. Hitting the
-// EXISTING canonical join endpoint (/api/waitlist/join) -- no competing
-// waitlist state is created here.
+// PART D: State/Other selector mirrors ISP Setup's exact pattern (same
+// US_STATES list, same OTHER_STATE_CODE sentinel, same custom-region
+// requirement when Other is selected).
+function WaitlistForm({ onSubmit, submitting, error }) {
+  const [state, setState] = useState("");
+  const [stateOther, setStateOther] = useState("");
+  const [zip, setZip] = useState("");
+  const isOther = state === OTHER_STATE_CODE;
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    onSubmit({ state, stateOther, zip });
+  }
+
+  const inputClass =
+    "w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder-[#707070] outline-none transition focus:border-[#32B5FF]/60 focus:ring-1 focus:ring-[#32B5FF]/60";
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-[#B0B0B0]">State / Region</span>
+        <select
+          value={state}
+          onChange={(e) => setState(e.target.value)}
+          required
+          className={inputClass}
+        >
+          <option value="" disabled>
+            Select a state
+          </option>
+          {US_STATES.map((code) => (
+            <option key={code} value={code}>
+              {code}
+            </option>
+          ))}
+          <option value={OTHER_STATE_CODE}>Other</option>
+        </select>
+      </label>
+      {isOther && (
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium text-[#B0B0B0]">
+            State / Province / Region / Territory
+          </span>
+          <input
+            type="text"
+            value={stateOther}
+            onChange={(e) => setStateOther(e.target.value)}
+            required
+            placeholder="e.g. Panama, British Columbia"
+            className={inputClass}
+          />
+        </label>
+      )}
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-[#B0B0B0]">ZIP / Postal Code</span>
+        <input
+          type="text"
+          value={zip}
+          onChange={(e) => setZip(e.target.value)}
+          required
+          className={inputClass}
+        />
+      </label>
+      {error && (
+        <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>
+      )}
+      <button
+        type="submit"
+        disabled={submitting}
+        className={`flex w-full items-center justify-center gap-2 rounded-xl px-6 py-4 text-base font-extrabold tracking-wide text-white transition-all ${
+          submitting
+            ? "cursor-not-allowed bg-green-700/50"
+            : "bg-green-600 shadow-[0_0_30px_rgba(34,197,94,0.5)] hover:bg-green-500 active:scale-[0.98]"
+        }`}
+      >
+        {submitting ? "Submitting\u2026" : "Confirm Waitlist Spot"}
+      </button>
+    </form>
+  );
+}
+
+// Pre-join popup/overlay: placeholder card + "Join the Waitlist" CTA,
+// which reveals the State/ZIP form (PART D/E) in place.
 function PreJoinOverlay({ onJoin, joining, error }) {
+  const [showForm, setShowForm] = useState(false);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -50,38 +134,27 @@ function PreJoinOverlay({ onJoin, joining, error }) {
         animate={{ scale: 1, opacity: 1 }}
         className="w-full max-w-xl rounded-2xl border border-[#32B5FF]/30 bg-[#1E1E1E] p-6 shadow-[0_0_60px_rgba(50,181,255,0.25)] sm:p-8"
       >
-        <div className="mb-4 flex items-center gap-2 text-[#32B5FF]">
-          <Clock3 className="h-6 w-6" />
-          <h2 className="text-lg font-bold text-white sm:text-xl">Join the Waitlist</h2>
-        </div>
-        <div className="space-y-3 text-sm leading-relaxed text-[#B0B0B0] sm:text-base">
-          {PRE_JOIN_COPY.map((para, i) => (
-            <p key={i}>{para}</p>
-          ))}
-        </div>
-        {error && (
-          <div className="mt-4 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
-            {error}
+        <SoldOutPlaceholder />
+        {!showForm ? (
+          <button
+            onClick={() => setShowForm(true)}
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-6 py-4 text-base font-extrabold tracking-wide text-white shadow-[0_0_30px_rgba(34,197,94,0.5)] transition-all hover:bg-green-500 active:scale-[0.98]"
+          >
+            <Clock3 className="h-5 w-5" />
+            Join the Waitlist
+          </button>
+        ) : (
+          <div className="mt-6">
+            <WaitlistForm onSubmit={onJoin} submitting={joining} error={error} />
           </div>
         )}
-        <button
-          onClick={onJoin}
-          disabled={joining}
-          className={`mt-6 flex w-full items-center justify-center gap-2 rounded-xl px-6 py-4 text-base font-extrabold tracking-wide text-white transition-all ${
-            joining
-              ? "cursor-not-allowed bg-green-700/50"
-              : "bg-green-600 shadow-[0_0_30px_rgba(34,197,94,0.5)] hover:bg-green-500 active:scale-[0.98]"
-          }`}
-        >
-          {joining ? "Joining\u2026" : "Join Waitlist"}
-        </button>
       </motion.div>
     </motion.div>
   );
 }
 
-// Post-join confirmation panel: replaces the pre-join popup once
-// waitlist_joined_at is set. Same prominent placement.
+// Post-join confirmation panel -- shown once, immediately after a
+// successful join in THIS session.
 function ConfirmationOverlay({ onClose }) {
   return (
     <motion.div
@@ -100,13 +173,7 @@ function ConfirmationOverlay({ onClose }) {
         <div className="mb-3 flex items-center gap-2 text-[#32B5FF]">
           <CheckCircle2 className="h-6 w-6" />
         </div>
-        <div className="space-y-2 text-sm text-[#B0B0B0]">
-          {CONFIRMATION_COPY.map((para, i) => (
-            <p key={i} className={i === 0 ? "text-base font-bold text-white" : undefined}>
-              {para}
-            </p>
-          ))}
-        </div>
+        <p className="text-sm text-[#B0B0B0]">{JOIN_SUCCESS_MESSAGE}</p>
         <button
           onClick={onClose}
           className="mt-5 w-full rounded-xl bg-[#32B5FF] px-4 py-2.5 text-sm font-semibold text-[#06121a] hover:bg-[#4dc0ff]"
@@ -118,24 +185,31 @@ function ConfirmationOverlay({ onClose }) {
   );
 }
 
+// PART G: prominent/glowing banner shown at the TOP once joined.
+function JoinedBanner() {
+  return (
+    <FadeIn>
+      <div className="rounded-2xl border border-[#32B5FF]/40 bg-[#32B5FF]/[0.08] p-4 shadow-[0_0_30px_rgba(50,181,255,0.25)]">
+        <div className="flex items-center gap-2 text-sm font-semibold text-[#32B5FF]">
+          <CheckCircle2 className="h-5 w-5" />
+          {JOINED_BANNER_MESSAGE}
+        </div>
+      </div>
+    </FadeIn>
+  );
+}
+
 export default function NodesPage() {
   const { loading: accountLoading } = useAccount();
   const [nodes, setNodes] = useState([]);
   const [locked, setLocked] = useState(true);
   const [loading, setLoading] = useState(true);
 
-  // Waitlist redesign batch: state.state comes ENTIRELY from
-  // /api/waitlist/status (accounts.waitlist_joined_at), polled by
-  // useWaitlistStatus -- never localStorage/component-only state, so it
-  // survives refresh/logout/login/new sessions per spec section B.
   const { status, refetch } = useWaitlistStatus(5000);
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState("");
   // Shows the confirmation panel immediately after a successful join in
-  // THIS session; on a later visit where the account already has
-  // waitlist_joined_at set (spec Test 5 -- pre-existing joined member),
-  // the page just shows the plain joined Bridge list with no popup at
-  // all, never re-showing this confirmation unprompted.
+  // THIS session; a pre-existing joined member never sees this unprompted.
   const [justJoined, setJustJoined] = useState(false);
 
   useEffect(() => {
@@ -162,11 +236,21 @@ export default function NodesPage() {
     };
   }, []);
 
-  async function handleJoin() {
+  // BRIDGES-NOTIFICATION batch: clear the Bridges badge for THIS session
+  // the moment this page loads -- mirrors the ISP Setup mark-seen pattern.
+  useEffect(() => {
+    fetch("/api/bridges/dismiss", { method: "POST" }).catch(() => {});
+  }, []);
+
+  async function handleJoin({ state, stateOther, zip }) {
     setJoinError("");
     setJoining(true);
     try {
-      const res = await fetch("/api/waitlist/join", { method: "POST" });
+      const res = await fetch("/api/waitlist/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state, stateOther, zip }),
+      });
       const data = await res.json();
       if (!res.ok) {
         setJoinError(data.error || "Unable to join waitlist.");
@@ -184,32 +268,27 @@ export default function NodesPage() {
   if (accountLoading || loading) {
     return (
       <div className="space-y-6">
-        <SectionTitle eyebrow="Marketplace" title="Waitlist" />
+        <SectionTitle eyebrow="Marketplace" title="Bridges" />
       </div>
     );
   }
 
   // Server-enforced restriction mirrored client-side: before ISP Setup is
-  // completed and approved, the Waitlist/Data Bridges section is
-  // inaccessible and shows the same "Location Required" locked-state card
-  // used in Payouts.
+  // completed and approved, the Bridges section is inaccessible.
   if (locked) {
     return (
       <div className="space-y-6">
         <SectionTitle
           eyebrow="Marketplace"
-          title="Waitlist"
+          title="Bridges"
           subtitle="Premium Bridge inventory in high demand — most sell out within hours."
         />
-        <LocationRequiredCard body="Complete your ISP Setup to unlock the Waitlist marketplace for your area." />
+        <LocationRequiredCard body="Complete your ISP Setup to unlock the Bridges marketplace for your area." />
       </div>
     );
   }
 
   // Not-joined: waitlist_joined_at is still NULL for this account.
-  // Underlying Bridge inventory stays rendered but visibly darkened/
-  // greyed-out and non-interactive behind the overlay (spec section D) --
-  // the popup (spec E/F) sits on top of it.
   const notJoined = status != null && status.state !== "joined";
 
   return (
@@ -217,16 +296,18 @@ export default function NodesPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <SectionTitle
           eyebrow="Marketplace"
-          title="Waitlist"
+          title="Bridges"
           subtitle="Premium Bridge inventory in high demand — most sell out within hours."
         />
       </div>
 
+      {/* PART G: joined banner replaces the repeated join experience. */}
+      {status?.state === "joined" && <JoinedBanner />}
+
       <div className="relative">
         {/* Underlying Bridges content: darkened + non-interactive while
-            not joined (pointer-events-none blocks every purchase/
-            selection control beneath the overlay), but never hidden --
-            the customer must still be able to visually see it per spec. */}
+            not joined, but never hidden -- the customer must still be
+            able to visually see it. */}
         <div
           aria-hidden={notJoined}
           className={
@@ -280,12 +361,6 @@ export default function NodesPage() {
                             <td className="px-4 py-3 font-mono text-xs">{node.ip}</td>
                             <td className="px-4 py-3 text-right font-mono text-xs">
                               <span className="text-white [text-shadow:0_0_8px_rgba(50,181,255,0.5)]">
-                                {/* Display-only +/-5% visual fluctuation layered
-                                    over the stable server-supplied
-                                    estMonthlyCents core value (see
-                                    components/ui/FluctuatingEarnings.js) --
-                                    never the actual stored rate, never fed
-                                    into any accrual/payout math. */}
                                 <FluctuatingEarnings coreCents={node.estMonthlyCents} />
                               </span>
                               <div className="text-[10px] font-sans text-[#707070]">estimated</div>
@@ -304,13 +379,6 @@ export default function NodesPage() {
                               </span>
                             </td>
                             <td className="px-4 py-3 text-right">
-                              {/* Purchase is not implemented -- this button is
-                                  permanently disabled and never fires a
-                                  request or navigates anywhere; it exists
-                                  purely to visually communicate "Sold Out" for
-                                  every listed Bridge, matching the marketplace
-                                  copy above ("most Bridges sell out within
-                                  hours"). */}
                               <button
                                 type="button"
                                 disabled

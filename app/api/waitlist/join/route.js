@@ -2,8 +2,32 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getCurrentAccountRaw } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
-import { computeWaitlistStatus, waitlistDeadlineMs } from "@/lib/waitlistEngine";
+import { generateId } from "@/lib/auth-crypto";
+import { computeWaitlistStatus } from "@/lib/waitlistEngine";
 import { scheduleWaitlistSelectionMessage } from "@/lib/supportAutomation";
+import {
+  normalizeState,
+  isValidStateCode,
+  normalizeOtherStateText,
+  OTHER_STATE_CODE,
+} from "@/lib/locationNormalize";
+
+// BRIDGES-WAITLIST-LOCATION batch: same State/Other validation shape as
+// ISP Setup (lib/isp/submit/route.js) -- reused, not reinvented.
+function validateLocation(body) {
+  if (typeof body.zip !== "string" || body.zip.trim().length < 3 || body.zip.trim().length > 12) {
+    return "ZIP / Postal Code looks invalid.";
+  }
+  const normalizedState = normalizeState(body.state || "");
+  const isOther = normalizedState === OTHER_STATE_CODE;
+  if (!isOther && !isValidStateCode(normalizedState)) {
+    return "State / Region must be a valid US state, or Other.";
+  }
+  if (isOther && !normalizeOtherStateText(body.stateOther).length) {
+    return "Please enter your State / Province / Region / Territory.";
+  }
+  return null;
+}
 
 // Customer joins the Nodes waitlist. Account is derived ENTIRELY from the
 // authenticated session -- the request body is never read for an account
@@ -35,6 +59,13 @@ export async function POST(request) {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
 
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
+
   const db = getDb();
 
   // Wrap the check-then-write in a transaction so a burst of concurrent
@@ -51,26 +82,38 @@ export async function POST(request) {
       );
     }
 
-    const deadlineMs = waitlistDeadlineMs(fresh.first_login_at);
-    if (deadlineMs != null && Date.now() >= deadlineMs) {
+    // BRIDGES-REDESIGN batch: countdown/deadline gating removed -- anyone
+    // may join at any time, so there is no expiry check here anymore.
+
+    const validationError = validateLocation(body);
+    if (validationError) {
       db.exec("ROLLBACK");
-      return NextResponse.json(
-        { error: "The waitlist has closed for this account." },
-        { status: 409 }
-      );
+      return NextResponse.json({ error: validationError }, { status: 400 });
     }
+
+    const normalizedState = normalizeState(body.state);
+    const isOther = normalizedState === OTHER_STATE_CODE;
+    const stateOtherText = isOther ? normalizeOtherStateText(body.stateOther) : null;
+    const zip = body.zip.trim();
 
     const now = new Date().toISOString();
 
     // waitlist_started_at is set alongside waitlist_joined_at (once) purely
-    // as a durable record of when the join transaction occurred; the
-    // countdown itself is always computed from first_login_at per spec.
+    // as a durable record of when the join transaction occurred.
     db.prepare(
       `UPDATE accounts
        SET waitlist_joined_at = COALESCE(waitlist_joined_at, ?),
            waitlist_started_at = COALESCE(waitlist_started_at, ?)
        WHERE id = ?`
     ).run(now, now, account.id);
+
+    // BRIDGES-WAITLIST-LOCATION batch: the waitlist's OWN location record,
+    // separate from accounts.isp_city/isp_state (never overwritten here).
+    db.prepare(
+      `INSERT INTO waitlist_submissions (id, account_id, state, state_is_other, state_other_text, zip, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(account_id) DO NOTHING`
+    ).run(generateId("wlsub"), account.id, normalizedState, isOther ? 1 : 0, stateOtherText, zip, now);
 
     // WAITLIST-48H-MESSAGE batch (spec sections D/E/F/G): this is the
     // ONE, explicit "successful new waitlist JOIN action" hook -- fresh
@@ -79,13 +122,7 @@ export async function POST(request) {
     // a pre-existing member. Scheduling happens INSIDE this same
     // transaction (scheduleMessage() issues no BEGIN/COMMIT of its own --
     // see lib/supportAutomation.js) so the join write and the message
-    // schedule commit atomically together: a crash between them is
-    // impossible, and a retried/duplicate request either sees
-    // waitlist_joined_at already set (409, short-circuits above) or races
-    // this same transaction and is serialized by SQLite. The event_key
-    // (tied to accountId only, see waitlistSelectionEventKey()) also
-    // means even a hypothetical schedule call from two different code
-    // paths could never double-schedule.
+    // schedule commit atomically together.
     scheduleWaitlistSelectionMessage(db, { accountId: account.id, joinedAtIso: now });
 
     db.exec("COMMIT");

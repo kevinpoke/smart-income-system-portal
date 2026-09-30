@@ -8,6 +8,7 @@ import {
   computeDisabledFunnel,
   computeIspApprovalConversion,
   computeModule10RefundAnalytics,
+  computeModuleWatchAnalytics,
   computeIspRetention,
   computeAutomatedMessageAnalytics,
   computeOtherStateAnalytics,
@@ -189,6 +190,11 @@ export async function GET(request) {
   // range-filtered by disabled_at (the refund event's own timestamp).
   const module10Refunds = computeModule10RefundAnalytics(db, Date.now(), range);
 
+  // ---- MODULE-WATCH-ANALYTICS batch: lifetime-only, see
+  // lib/supportAnalytics.js#computeModuleWatchAnalytics header comment
+  // for why this is never date-range-scoped.
+  const moduleWatchAnalytics = computeModuleWatchAnalytics(db);
+
   // ---- TASK 4: Post-ISP login retention ----
   const ispRetention = computeIspRetention(db, range);
 
@@ -225,6 +231,7 @@ export async function GET(request) {
     disabledFunnel,
     ispApprovalConversion,
     module10Refunds,
+    moduleWatchAnalytics,
     ispRetention,
     automatedMessages,
     otherStateAnalytics,

@@ -19,14 +19,14 @@ import {
 import { useAccount } from "@/lib/useAccount";
 import { useSupportUnread } from "@/lib/useSupportUnread";
 import { useIspUnread } from "@/lib/useIspUnread";
-import { useWaitlistStatus } from "@/lib/useWaitlistStatus";
+import { useBridgesNotification } from "@/lib/useBridgesNotification";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/modules", label: "Modules", icon: PlayCircle },
   { href: "/isp-setup", label: "ISP Setup", icon: Wifi },
   { href: "/payouts", label: "Payouts", icon: Wallet },
-  { href: "/nodes", label: "Waitlist", icon: Server },
+  { href: "/nodes", label: "Bridges", icon: Server },
   { href: "/withdrawals", label: "Withdrawals", icon: Banknote },
   { href: "/support", label: "Support", icon: LifeBuoy },
 ];
@@ -51,12 +51,10 @@ export default function Sidebar() {
   // (see lib/useIspUnread.js) -- fully separate poll/state from Support's,
   // so opening Support never clears this and vice versa.
   const { unread: ispUnread } = useIspUnread();
-  // Waitlist redesign batch (spec section B): server-authoritative blue
-  // glow on the Waitlist nav item -- polls /api/waitlist/status (backed
-  // entirely by accounts.waitlist_joined_at, never localStorage/component
-  // state), independent of the Support/ISP unread polls above.
-  const { status: waitlistStatus } = useWaitlistStatus(5000);
-  const showWaitlistGlow = waitlistStatus != null && waitlistStatus.state !== "joined";
+  // BRIDGES-NOTIFICATION batch: session-aware badge (see
+  // lib/bridgesNotification.js) -- independent of the Support/ISP unread
+  // polls above.
+  const { show: showWaitlistGlow } = useBridgesNotification();
 
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -133,6 +131,9 @@ export default function Sidebar() {
             : showIspBadge
               ? "ISP status update"
               : "Join the Waitlist";
+          // ^ label text unchanged (still references the underlying
+          // waitlist action) -- only the nav item's own `label` above
+          // needed to become customer-facing "Bridges" per spec.
           return (
             <Link
               key={item.href}
