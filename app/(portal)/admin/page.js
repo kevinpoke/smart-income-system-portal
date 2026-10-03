@@ -34,6 +34,7 @@ import {
   RotateCcw,
   Mail,
   BanknoteX,
+  Banknote,
 } from "lucide-react";
 
 // Matches the MIN_PASSWORD_LENGTH policy already enforced server-side in
@@ -415,6 +416,260 @@ function RemoveBankInfoModal({ account, onClose, onSubmitted }) {
   );
 }
 
+// BANK-INTERNATIONAL batch: standalone (NOT nested inside
+// EditBankInfoModal -- ESLint react-hooks/static-components correctly
+// flagged the earlier inline version, since a component redeclared on
+// every parent render loses its own internal state/identity each time)
+// reusable bank-field input. Receives everything explicitly as props --
+// never closes over EditBankInfoModal's state directly. Always a plain
+// text input (never type="number" -- Admin may enter arbitrary
+// alphanumeric content in any of these fields, including SWIFT/IBAN).
+function AdminBankField({
+  label,
+  value,
+  onChange,
+  field,
+  hasExisting,
+  existingLast4,
+  placeholder,
+  onClear,
+  onMarkTouched,
+}) {
+  const fieldInputClass =
+    "w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-[#707070] outline-none transition focus:border-[#32B5FF]/60 focus:ring-1 focus:ring-[#32B5FF]/60";
+  return (
+    <label className="block">
+      <span className="mb-1 flex items-center justify-between text-xs text-[#B0B0B0]">
+        <span>{label}</span>
+        {hasExisting && (
+          <button
+            type="button"
+            onClick={() => {
+              onChange("");
+              onClear(field);
+            }}
+            className="text-[10px] font-medium text-rose-300 hover:text-rose-200"
+          >
+            Clear
+          </button>
+        )}
+      </span>
+      <input
+        type="text"
+        className={fieldInputClass}
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          onMarkTouched(field);
+        }}
+        placeholder={hasExisting ? `On file: •••• ${existingLast4}` : placeholder}
+      />
+    </label>
+  );
+}
+
+// BANK-INTERNATIONAL batch (Part D): Admin view/edit of a customer's
+// full bank information -- Account Number, Routing Number, SWIFT, IBAN.
+// Mirrors SetPasswordModal's exact UX pattern: fields load BLANK (never
+// pre-filled with the real secret -- GET only ever returns masked last-4
+// + presence flags, see lib/bank.js maskBankInfoForAdmin), and a blank
+// field on Save means "leave this field untouched," not "clear it" --
+// only a field the admin actually TYPED INTO gets sent in the PATCH-like
+// POST body (see handleSave below), so an admin editing just SWIFT can
+// never accidentally wipe an existing Account/Routing/IBAN value simply
+// by leaving those inputs blank.
+//
+// Each field is independently optional server-side (lib/bank.js
+// validateAdminBankField) -- no domestic-pair or international-pair
+// requirement for Admin, per spec's "CRITICAL ADMIN REQUIREMENT".
+function EditBankInfoModal({ account, onClose, onSubmitted }) {
+  const [loading, setLoading] = useState(true);
+  const [current, setCurrent] = useState(null);
+  const [fullName, setFullName] = useState("");
+  const [address, setAddress] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [routingNumber, setRoutingNumber] = useState("");
+  const [swift, setSwift] = useState("");
+  const [iban, setIban] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/accounts/${account.id}/bank`, { cache: "no-store" });
+        const data = await res.json();
+        if (!cancelled) setCurrent(data.bank || null);
+      } catch {
+        if (!cancelled) setCurrent(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [account.id]);
+
+  // Clear-a-field affordance: an explicit "Clear" button per sensitive
+  // field sets that field's input to the sentinel empty string AND
+  // marks it as touched (via a ref-free approach: typing "" is
+  // indistinguishable from untouched-blank otherwise) -- see
+  // touchedFields below. This gives Admin a safe, explicit way to clear
+  // one field (spec test #21) without having to type something and
+  // delete it.
+  const [touchedFields, setTouchedFields] = useState({});
+  function markTouched(field) {
+    setTouchedFields((t) => ({ ...t, [field]: true }));
+  }
+  function handleClear(field, setter) {
+    setter("");
+    markTouched(field);
+  }
+
+  async function handleSave() {
+    setError("");
+    const body = {};
+    if (touchedFields.fullName) body.fullName = fullName;
+    if (touchedFields.address) body.address = address;
+    if (touchedFields.accountNumber) body.accountNumber = accountNumber;
+    if (touchedFields.routingNumber) body.routingNumber = routingNumber;
+    if (touchedFields.swift) body.swift = swift;
+    if (touchedFields.iban) body.iban = iban;
+
+    if (Object.keys(body).length === 0) {
+      setError("Change at least one field before saving.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/admin/accounts/${account.id}/bank`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Unable to save bank information.");
+        return;
+      }
+      onSubmitted("Bank information saved.");
+      onClose();
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-[#1E1E1E] p-6"
+      >
+        <h3 className="mb-1 text-base font-bold text-white">Bank Information</h3>
+        <p className="mb-4 text-xs font-mono text-[#707070]">{account.email}</p>
+        {loading ? (
+          <div className="text-xs text-[#707070]">Loading…</div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-[11px] text-[#707070]">
+              Fields left blank keep their current saved value. Use Clear to explicitly remove a
+              field. Any combination of fields may be saved — none are required together.
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <AdminBankField
+                label="Full Name"
+                field="fullName"
+                value={fullName}
+                onChange={setFullName}
+                hasExisting={Boolean(current?.fullName)}
+                existingLast4={null}
+                placeholder="Jane Doe"
+                onClear={markTouched}
+                onMarkTouched={markTouched}
+              />
+              <AdminBankField
+                label="Address"
+                field="address"
+                value={address}
+                onChange={setAddress}
+                hasExisting={Boolean(current?.address)}
+                existingLast4={null}
+                placeholder="123 Main St, Austin, TX"
+                onClear={markTouched}
+                onMarkTouched={markTouched}
+              />
+              <AdminBankField
+                label="Account Number"
+                field="accountNumber"
+                value={accountNumber}
+                onChange={setAccountNumber}
+                hasExisting={Boolean(current?.hasAccountNumber)}
+                existingLast4={current?.accountLast4}
+                placeholder="000123456789"
+                onClear={markTouched}
+                onMarkTouched={markTouched}
+              />
+              <AdminBankField
+                label="Routing Number"
+                field="routingNumber"
+                value={routingNumber}
+                onChange={setRoutingNumber}
+                hasExisting={Boolean(current?.hasRoutingNumber)}
+                existingLast4={current?.routingLast4}
+                placeholder="021000021"
+                onClear={markTouched}
+                onMarkTouched={markTouched}
+              />
+              <AdminBankField
+                label="SWIFT"
+                field="swift"
+                value={swift}
+                onChange={setSwift}
+                hasExisting={Boolean(current?.hasSwift)}
+                existingLast4={current?.swiftLast4}
+                placeholder="ABCDUS12"
+                onClear={markTouched}
+                onMarkTouched={markTouched}
+              />
+              <AdminBankField
+                label="IBAN"
+                field="iban"
+                value={iban}
+                onChange={setIban}
+                hasExisting={Boolean(current?.hasIban)}
+                existingLast4={current?.ibanLast4}
+                placeholder="GB29NWBK60161331926819"
+                onClear={markTouched}
+                onMarkTouched={markTouched}
+              />
+            </div>
+            {current?.fullName && (
+              <p className="text-[10px] text-[#707070]">
+                Currently on file: {current.fullName}
+                {current.updatedAt ? ` — updated ${new Date(current.updatedAt).toLocaleString()}` : ""}
+              </p>
+            )}
+            {error && <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>}
+          </div>
+        )}
+        <div className="mt-5 flex gap-2">
+          <GhostButton type="button" onClick={onClose} className="flex-1">
+            Cancel
+          </GhostButton>
+          <AccentButton type="button" onClick={handleSave} disabled={submitting || loading} className="flex-1">
+            {submitting ? "Saving…" : "Save Bank Info"}
+          </AccentButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Portal reliability pass: broadcast "Send Message" confirmation modal.
 function BroadcastModal({ recipientIds, onClose, onSubmitted }) {
   const [message, setMessage] = useState("");
@@ -716,6 +971,8 @@ function AccountRow({
   onOpenResetLoginLink,
   onOpenRemoveBank,
   removeBankMessage,
+  onOpenEditBank,
+  editBankMessage,
 }) {
   const [emailDraft, setEmailDraft] = useState(account.email);
   const [editingEmail, setEditingEmail] = useState(false);
@@ -1093,6 +1350,22 @@ function AccountRow({
                   Remove Bank Information
                 </span>
               </button>
+              {/* BANK-INTERNATIONAL batch (Part D): view/edit Account
+                  Number, Routing Number, SWIFT, IBAN for this customer.
+                  Always visible for customer rows, same as Remove Bank
+                  Information above -- opens EditBankInfoModal, which
+                  loads the current masked state itself. */}
+              <button
+                onClick={() => onOpenEditBank(account)}
+                aria-label={`Edit bank information for ${account.email}`}
+                title="Edit Bank Information"
+                className="group relative flex h-8 w-8 items-center justify-center rounded-lg bg-[#32B5FF]/15 text-[#32B5FF] hover:bg-[#32B5FF]/25"
+              >
+                <Banknote className="h-3.5 w-3.5" />
+                <span className="pointer-events-none absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                  Edit Bank Information
+                </span>
+              </button>
             </>
           )}
         </div>
@@ -1100,6 +1373,7 @@ function AccountRow({
         {setPasswordMessage && <div className="mt-1 text-[10px] text-green-400">{setPasswordMessage}</div>}
         {setupIspCreditMessage && <div className="mt-1 text-[10px] text-green-400">{setupIspCreditMessage}</div>}
         {removeBankMessage && <div className="mt-1 text-[10px] text-green-400">{removeBankMessage}</div>}
+        {editBankMessage && <div className="mt-1 text-[10px] text-green-400">{editBankMessage}</div>}
       </td>
     </tr>
   );
@@ -1216,6 +1490,10 @@ export default function AdminUsersPage() {
   // ADMIN-REMOVE-BANK-INFO batch: same lifted-to-page-root modal pattern.
   const [removeBankModalAccount, setRemoveBankModalAccount] = useState(null);
   const [removeBankMessages, setRemoveBankMessages] = useState({});
+  // BANK-INTERNATIONAL batch (Part D): same lifted-to-page-root modal
+  // pattern for the new "Edit Bank Information" action.
+  const [editBankModalAccount, setEditBankModalAccount] = useState(null);
+  const [editBankMessages, setEditBankMessages] = useState({});
   // PASSWORDLESS-CUSTOMER-LOGIN batch: same lifted-to-page-root pattern
   // for the "Reset Login Link" / "Reset & Send Login Email" confirm
   // modal -- `resetLoginLinkTarget` holds { account, sendEmail } so a
@@ -1584,6 +1862,8 @@ export default function AdminUsersPage() {
                   onOpenResetLoginLink={(acct, sendEmail) => setResetLoginLinkTarget({ account: acct, sendEmail })}
                   onOpenRemoveBank={setRemoveBankModalAccount}
                   removeBankMessage={removeBankMessages[account.id]}
+                  onOpenEditBank={setEditBankModalAccount}
+                  editBankMessage={editBankMessages[account.id]}
                 />
               ))}
               {adminRows.map((account) => (
@@ -1603,6 +1883,8 @@ export default function AdminUsersPage() {
                   setPasswordMessage={setPasswordMessages[account.id]}
                   onOpenRemoveBank={setRemoveBankModalAccount}
                   removeBankMessage={removeBankMessages[account.id]}
+                  onOpenEditBank={setEditBankModalAccount}
+                  editBankMessage={editBankMessages[account.id]}
                 />
               ))}
               {accounts.length === 0 && (
@@ -1770,6 +2052,20 @@ export default function AdminUsersPage() {
             setRemoveBankMessages((prev) => ({
               ...prev,
               [targetId]: message || "Bank information removed.",
+            }));
+            loadAccounts();
+          }}
+        />
+      )}
+      {editBankModalAccount && (
+        <EditBankInfoModal
+          account={editBankModalAccount}
+          onClose={() => setEditBankModalAccount(null)}
+          onSubmitted={(message) => {
+            const targetId = editBankModalAccount.id;
+            setEditBankMessages((prev) => ({
+              ...prev,
+              [targetId]: message || "Bank information saved.",
             }));
             loadAccounts();
           }}

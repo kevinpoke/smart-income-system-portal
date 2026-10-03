@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { useLiveClock } from "@/lib/useLiveClock";
 import { useHasMounted } from "@/lib/useHasMounted";
 import { formatCompactDuration } from "@/lib/mockData";
-import { normalizeVturbConfig } from "@/lib/moduleVideo";
+import { normalizeVturbConfig, getVturbCoverUrl } from "@/lib/moduleVideo";
 import { GlassCard, SectionTitle, Badge, AccentButton } from "@/components/ui/Primitives";
 import VturbPlayer from "@/components/ui/VturbPlayer";
 import { Lock, PlayCircle, CheckCircle2, X } from "lucide-react";
@@ -28,21 +28,43 @@ function ModuleCard({ mod, now, onOpen }) {
   const countdown =
     !unlocked && mod.unlockAt ? Math.max(0, new Date(mod.unlockAt).getTime() - now) : null;
 
+  // MODULE-THUMBNAILS batch: real first-frame/cover thumbnail from
+  // VTurb's own CDN (see lib/moduleVideo.js getVturbCoverUrl header
+  // comment) -- an <img>, never a scrape/download/transcode. Falls back
+  // to the existing static gradient box (unchanged) whenever no video is
+  // configured for this module, the config is invalid, or the cover
+  // image itself fails to load (onError below).
+  const vturb = normalizeVturbConfig(mod.vturbPlayerId, mod.vturbScriptUrl);
+  const coverUrl = vturb ? getVturbCoverUrl(vturb) : null;
+  const [coverFailed, setCoverFailed] = useState(false);
+  const showCover = Boolean(coverUrl) && !coverFailed;
+
   return (
     <motion.div whileHover={unlocked ? { y: -3 } : {}} className="h-full">
       <GlassCard
         className={`flex h-full flex-col overflow-hidden ${unlocked ? "" : "opacity-60"}`}
       >
         <div className="relative flex aspect-video items-center justify-center bg-gradient-to-br from-[#1c2a33] to-[#0e1a20]">
+          {showCover && (
+            // eslint-disable-next-line @next/next/no-img-element -- external VTurb CDN asset, not an optimizable local/static image.
+            <img
+              src={coverUrl}
+              alt=""
+              onError={() => setCoverFailed(true)}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          )}
           {unlocked ? (
             <button
               onClick={() => onOpen(mod.id)}
-              className="flex h-14 w-14 items-center justify-center rounded-full bg-[#32B5FF]/20 text-[#32B5FF] backdrop-blur transition hover:bg-[#32B5FF]/30"
+              className={`relative z-10 flex h-14 w-14 items-center justify-center rounded-full text-[#32B5FF] backdrop-blur transition ${
+                showCover ? "bg-black/40 hover:bg-black/55" : "bg-[#32B5FF]/20 hover:bg-[#32B5FF]/30"
+              }`}
             >
               <PlayCircle className="h-8 w-8" />
             </button>
           ) : (
-            <div className="flex flex-col items-center gap-2 px-4 text-center text-[#707070]">
+            <div className="relative z-10 flex flex-col items-center gap-2 px-4 text-center text-[#707070]">
               <Lock className="h-8 w-8" />
               {countdown != null && countdown > 0 ? (
                 <span
@@ -56,7 +78,7 @@ function ModuleCard({ mod, now, onOpen }) {
             </div>
           )}
           {completed && (
-            <div className="absolute right-2 top-2">
+            <div className="absolute right-2 top-2 z-10">
               <Badge tone="success">
                 <CheckCircle2 className="mr-1 h-3 w-3" /> Watched
               </Badge>

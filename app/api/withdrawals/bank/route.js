@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getCurrentAccountRaw } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
-import { maskBankInfo, validateBankInfo } from "@/lib/bank";
+import { maskBankInfo, validateCustomerBankInfo } from "@/lib/bank";
 import { hasModuleAccess, hasWithdrawalsModule10Access } from "@/lib/moduleAccess";
 
 // Customer's own bank info for withdrawals. GET returns only the masked
@@ -106,28 +106,42 @@ export async function POST(request) {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const validationError = validateBankInfo(body);
+  const validationError = validateCustomerBankInfo(body);
   if (validationError) {
     return NextResponse.json({ error: validationError }, { status: 400 });
   }
 
   const now = new Date().toISOString();
 
+  // BANK-INTERNATIONAL batch: routing_number/account_number remain
+  // NOT NULL columns (unchanged schema contract -- every pre-existing
+  // domestic row already satisfies this) -- an international-only
+  // customer submission stores empty strings for the domestic pair
+  // (never NULL, never a fabricated placeholder digit value), exactly
+  // mirroring how swift/iban are stored as empty strings (not NULL) for
+  // a domestic-only submission. maskBankInfo() treats an empty string
+  // the same as "not set" (hasAccountNumber/hasRoutingNumber/hasSwift/
+  // hasIban all check `.length > 0`), so this is indistinguishable from
+  // NULL at every read site.
   db.prepare(
-    `INSERT INTO bank_accounts (account_id, full_name, address, routing_number, account_number, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO bank_accounts (account_id, full_name, address, routing_number, account_number, swift, iban, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(account_id) DO UPDATE SET
        full_name = excluded.full_name,
        address = excluded.address,
        routing_number = excluded.routing_number,
        account_number = excluded.account_number,
+       swift = excluded.swift,
+       iban = excluded.iban,
        updated_at = excluded.updated_at`
   ).run(
     account.id,
     body.fullName.trim(),
     body.address.trim(),
-    body.routingNumber.trim(),
-    body.accountNumber.trim(),
+    typeof body.routingNumber === "string" ? body.routingNumber.trim() : "",
+    typeof body.accountNumber === "string" ? body.accountNumber.trim() : "",
+    typeof body.swift === "string" ? body.swift.trim() : "",
+    typeof body.iban === "string" ? body.iban.trim() : "",
     now
   );
 

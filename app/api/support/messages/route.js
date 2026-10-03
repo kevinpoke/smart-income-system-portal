@@ -11,6 +11,7 @@ import {
 } from "@/lib/supportEngine";
 import { deliverDueMessages } from "@/lib/supportAutomation";
 import { saveSupportImageUpload } from "@/lib/supportUploads";
+import { requestAutomationWake } from "@/lib/automationWake";
 
 // Customer's own support conversation. Always scoped to the authenticated
 // session's account id -- there is no conversation/account id parameter
@@ -81,6 +82,16 @@ export async function GET() {
   // read_at set" as the point-in-time event, "Admin UI refreshes ->
   // displays Read" as the subsequently-observed effect).
   markAdminMessagesReadByCustomer(db, conversation.id);
+
+  // SECOND-LEVEL-TIMING batch: a MESSAGE_READ-anchored generic automation
+  // with a short delay should react promptly -- see lib/automationWake.js.
+  // Purely a latency optimization; the recurring scheduler tick still
+  // independently reconciles this regardless.
+  try {
+    requestAutomationWake();
+  } catch (err) {
+    console.error("[support/messages] automation wake request failed:", err);
+  }
 
   return NextResponse.json({
     conversationId: conversation.id,

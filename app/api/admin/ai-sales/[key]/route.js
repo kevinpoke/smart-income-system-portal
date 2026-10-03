@@ -31,19 +31,23 @@ export async function GET(_request, { params }) {
     enabled: Boolean(def.enabled),
     messageBody: def.message_body,
     triggerMatchMode: def.trigger_match_mode || "all",
+    ruleTree: def.rule_tree_json ? JSON.parse(def.rule_tree_json) : null,
     conditions: getAutomationConditions(db, key),
+    delaySeconds: def.delay_seconds,
     delayHours: def.delay_hours,
     updatedAt: def.updated_at,
     auditLog: getAutomationAuditLog(db, key),
   });
 }
 
-// PATCH body: { messageBody?, rule?: {triggerMatchMode, conditions, delayHours}, enabled? }
+// PATCH body: { messageBody?, rule?: {ruleTree, conditions, delayValue, delayUnit}, enabled? }
 // Each field is independently optional/updatable; edits are prospective
 // only (see lib/automationDefinitions.js -- never touches historical
 // sends/idempotency). `key` and `messageCode` are NEVER accepted here --
 // both are permanent, server-assigned identities and this route has no
-// code path that can alter either.
+// code path that can alter either. `rule.ruleTree` leaves use
+// `conditionIndex` (position within `rule.conditions`) -- resolved to
+// real condition-row ids server-side, atomically with the replace.
 export async function PATCH(request, { params }) {
   if (!isSameOrigin(request)) {
     return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
@@ -96,7 +100,9 @@ export async function PATCH(request, { params }) {
     enabled: Boolean(def.enabled),
     messageBody: def.message_body,
     triggerMatchMode: def.trigger_match_mode || "all",
+    ruleTree: def.rule_tree_json ? JSON.parse(def.rule_tree_json) : null,
     conditions: getAutomationConditions(db, key),
+    delaySeconds: def.delay_seconds,
     delayHours: def.delay_hours,
   });
 }

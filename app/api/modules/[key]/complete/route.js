@@ -4,6 +4,7 @@ import { getCurrentAccountRaw } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
 import { completeModule, computeModuleStatuses } from "@/lib/moduleEngine";
 import { triggerGoldenBridgeFollowupFromModuleCompletion } from "@/lib/supportAutomation";
+import { requestAutomationWake } from "@/lib/automationWake";
 
 const GOLDEN_BRIDGE_FOLLOWUP_MODULE_KEY = 7;
 
@@ -63,6 +64,19 @@ export async function POST(request, { params }) {
       triggerGoldenBridgeFollowupFromModuleCompletion(db, account.id);
     } catch (err) {
       console.error("[modules/complete] Golden Bridge follow-up trigger failed:", err);
+    }
+  }
+
+  // SECOND-LEVEL-TIMING batch: a WATCH_MODULE-anchored generic automation
+  // with a short delay should react promptly rather than waiting for the
+  // next recurring scheduler tick -- see lib/automationWake.js. Only on a
+  // genuinely fresh completion (matches the Golden Bridge trigger's own
+  // idempotency guard above), purely a latency optimization.
+  if (!result.alreadyCompleted) {
+    try {
+      requestAutomationWake();
+    } catch (err) {
+      console.error("[modules/complete] automation wake request failed:", err);
     }
   }
 

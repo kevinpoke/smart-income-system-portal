@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { verifyPassword, generateId } from "@/lib/auth-crypto";
 import { createSession } from "@/lib/session";
 import { toPublicAccount } from "@/lib/authz";
+import { requestAutomationWake } from "@/lib/automationWake";
 
 // Very small in-memory rate limiter for login attempts, keyed by
 // email+IP. This is intentionally simple (no external store) since the app
@@ -124,6 +125,17 @@ export async function POST(request) {
     db.prepare(
       `INSERT INTO login_events (id, account_id, logged_in_at, auth_method) VALUES (?, ?, ?, ?)`
     ).run(generateId("loginevt"), account.id, now, "password");
+    // SECOND-LEVEL-TIMING batch: a FIRST_LOGIN/EACH_LOGIN-anchored generic
+    // AI Sales automation with a short (e.g. 15s) delay should not have
+    // to wait for the next recurring scheduler tick -- see
+    // lib/automationWake.js header comment. Synchronous, cheap, and
+    // purely a latency optimization: never required for correctness (the
+    // recurring tick still reconciles everything independently).
+    try {
+      requestAutomationWake();
+    } catch (err) {
+      console.error("[auth/login] automation wake request failed:", err);
+    }
   }
 
   await createSession(account.id);

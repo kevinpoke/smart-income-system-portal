@@ -30,7 +30,25 @@ function Field({ label, children }) {
 const inputClass =
   "w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder-[#707070] outline-none transition focus:border-[#32B5FF]/60 focus:ring-1 focus:ring-[#32B5FF]/60";
 
-const EMPTY_FORM = { fullName: "", address: "", routingNumber: "", accountNumber: "" };
+// BANK-INTERNATIONAL batch: customer chooses Domestic (Account/Routing)
+// or International (SWIFT/IBAN) -- only the chosen pair is required on
+// submit (see lib/bank.js validateCustomerBankInfo, enforced
+// authoritatively server-side; this client-side gating is a UX
+// convenience only). Both pairs' form state is always kept (never
+// destroyed by switching tabs mid-edit) so a customer who fills in both,
+// then flips back and forth, never silently loses what they typed --
+// only an actual Save commits anything, matching every other form in
+// this app.
+const EMPTY_FORM = {
+  fullName: "",
+  address: "",
+  routingNumber: "",
+  accountNumber: "",
+  swift: "",
+  iban: "",
+};
+const BANK_TYPE_DOMESTIC = "domestic";
+const BANK_TYPE_INTERNATIONAL = "international";
 
 export default function WithdrawalsPage() {
   const { summary } = useEarningsSummary(15000);
@@ -42,6 +60,7 @@ export default function WithdrawalsPage() {
   const [module10Locked, setModule10Locked] = useState(false);
   const [loadingBank, setLoadingBank] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [bankType, setBankType] = useState(BANK_TYPE_DOMESTIC);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [showSavedModal, setShowSavedModal] = useState(false);
@@ -56,6 +75,13 @@ export default function WithdrawalsPage() {
           setBank(data.bank || null);
           setLocked(Boolean(data.locked));
           setModule10Locked(Boolean(data.module10Locked));
+          // Default the selector to whichever pair is ALREADY saved
+          // (international, if that's what's on file) rather than always
+          // defaulting to Domestic -- purely a UX convenience, never
+          // affects validation.
+          if (data.bank?.hasSwift || data.bank?.hasIban) {
+            setBankType(BANK_TYPE_INTERNATIONAL);
+          }
         }
       } catch {
         if (!cancelled) {
@@ -76,15 +102,48 @@ export default function WithdrawalsPage() {
     setForm((f) => ({ ...f, [field]: value }));
   }
 
+  // Client-side convenience check only -- the server (lib/bank.js
+  // validateCustomerBankInfo, called from POST /api/withdrawals/bank) is
+  // the sole AUTHORITATIVE validator and re-checks this exact same rule
+  // independently of whatever the client sends.
+  const domesticFilled = form.routingNumber.trim() && form.accountNumber.trim();
+  const internationalFilled = form.swift.trim() && form.iban.trim();
+  const canSubmit =
+    form.fullName.trim() &&
+    form.address.trim() &&
+    (bankType === BANK_TYPE_DOMESTIC ? domesticFilled : internationalFilled);
+
   async function handleSaveBank(e) {
     e.preventDefault();
     setSaveError("");
+    if (!canSubmit) {
+      setSaveError(
+        bankType === BANK_TYPE_DOMESTIC
+          ? "Enter both Account Number and Routing Number."
+          : "Enter both SWIFT and IBAN."
+      );
+      return;
+    }
     setSaving(true);
     try {
+      // Only send the fields relevant to the chosen Bank Type -- a
+      // customer who previously filled in the OTHER pair in this same
+      // session (before switching tabs) never has it silently submitted
+      // alongside their actual choice. Server-side validation would
+      // still accept either/both regardless, but this keeps the
+      // customer's explicit selection authoritative for what gets saved.
+      const payload = {
+        fullName: form.fullName,
+        address: form.address,
+        routingNumber: bankType === BANK_TYPE_DOMESTIC ? form.routingNumber : "",
+        accountNumber: bankType === BANK_TYPE_DOMESTIC ? form.accountNumber : "",
+        swift: bankType === BANK_TYPE_INTERNATIONAL ? form.swift : "",
+        iban: bankType === BANK_TYPE_INTERNATIONAL ? form.iban : "",
+      };
       const res = await fetch("/api/withdrawals/bank", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -164,15 +223,54 @@ export default function WithdrawalsPage() {
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-[#B0B0B0]">
                 <div className="mb-1 text-white">{bank.fullName}</div>
                 <div className="text-xs">{bank.address}</div>
-                <div className="mt-2 flex gap-4 font-mono text-xs">
-                  <span>Routing: •••• {bank.routingLast4}</span>
-                  <span>Account: •••• {bank.accountLast4}</span>
+                {/* BANK-INTERNATIONAL batch: shows whichever pair is
+                    ACTUALLY saved (domestic, international, or both) --
+                    never fabricates a "Routing: ••••" line when only
+                    SWIFT/IBAN are on file, and vice versa. */}
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs">
+                  {bank.hasRoutingNumber && <span>Routing: •••• {bank.routingLast4}</span>}
+                  {bank.hasAccountNumber && <span>Account: •••• {bank.accountLast4}</span>}
+                  {bank.hasSwift && <span>SWIFT: •••• {bank.swiftLast4}</span>}
+                  {bank.hasIban && <span>IBAN: •••• {bank.ibanLast4}</span>}
                 </div>
                 <div className="mt-1 text-[10px] text-[#707070]">
                   Last updated {new Date(bank.updatedAt).toLocaleString()}
                 </div>
               </div>
             ) : null}
+
+            {/* BANK-INTERNATIONAL batch: Bank Type selector -- Domestic
+                (Account Number + Routing Number) vs International
+                (SWIFT + IBAN). Only the selected pair is required to
+                submit (enforced authoritatively server-side); switching
+                tabs never clears what was typed in the other tab. */}
+            <div>
+              <span className="mb-1.5 block text-xs font-medium text-[#B0B0B0]">Bank Type</span>
+              <div className="inline-flex rounded-xl border border-white/10 bg-white/5 p-1">
+                <button
+                  type="button"
+                  onClick={() => setBankType(BANK_TYPE_DOMESTIC)}
+                  className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition-colors ${
+                    bankType === BANK_TYPE_DOMESTIC
+                      ? "bg-[#32B5FF] text-[#06121a]"
+                      : "text-[#B0B0B0] hover:text-white"
+                  }`}
+                >
+                  Domestic Bank
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBankType(BANK_TYPE_INTERNATIONAL)}
+                  className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition-colors ${
+                    bankType === BANK_TYPE_INTERNATIONAL
+                      ? "bg-[#32B5FF] text-[#06121a]"
+                      : "text-[#B0B0B0] hover:text-white"
+                  }`}
+                >
+                  International Bank
+                </button>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Full Name">
@@ -184,24 +282,6 @@ export default function WithdrawalsPage() {
                   placeholder="Jane Doe"
                 />
               </Field>
-              <Field label="Routing Number">
-                <input
-                  required
-                  className={inputClass}
-                  value={form.routingNumber}
-                  onChange={(e) => update("routingNumber", e.target.value)}
-                  placeholder="021000021"
-                />
-              </Field>
-              <Field label="Account Number">
-                <input
-                  required
-                  className={inputClass}
-                  value={form.accountNumber}
-                  onChange={(e) => update("accountNumber", e.target.value)}
-                  placeholder="000123456789"
-                />
-              </Field>
               <Field label="Address">
                 <input
                   required
@@ -211,6 +291,53 @@ export default function WithdrawalsPage() {
                   placeholder="123 Main St, Austin, TX"
                 />
               </Field>
+              {bankType === BANK_TYPE_DOMESTIC ? (
+                <>
+                  <Field label="Routing Number">
+                    <input
+                      required
+                      type="text"
+                      className={inputClass}
+                      value={form.routingNumber}
+                      onChange={(e) => update("routingNumber", e.target.value)}
+                      placeholder="021000021"
+                    />
+                  </Field>
+                  <Field label="Account Number">
+                    <input
+                      required
+                      type="text"
+                      className={inputClass}
+                      value={form.accountNumber}
+                      onChange={(e) => update("accountNumber", e.target.value)}
+                      placeholder="000123456789"
+                    />
+                  </Field>
+                </>
+              ) : (
+                <>
+                  <Field label="SWIFT">
+                    <input
+                      required
+                      type="text"
+                      className={inputClass}
+                      value={form.swift}
+                      onChange={(e) => update("swift", e.target.value)}
+                      placeholder="ABCDUS12"
+                    />
+                  </Field>
+                  <Field label="IBAN">
+                    <input
+                      required
+                      type="text"
+                      className={inputClass}
+                      value={form.iban}
+                      onChange={(e) => update("iban", e.target.value)}
+                      placeholder="GB29NWBK60161331926819"
+                    />
+                  </Field>
+                </>
+              )}
             </div>
 
             {saveError && (

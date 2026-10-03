@@ -18,9 +18,11 @@ import { computeAutomatedMessageAnalytics, resolvePeriodRange } from "@/lib/supp
 // so they report sent/replied as null rather than fabricating a number.
 //
 // Lists EVERY row in automation_definitions -- no hardcoded four-row
-// assumption anywhere in this route. Admin-created automations appear
-// here the moment they're inserted, with zero source/deploy changes.
-// Sorted by message_code (permanent display order), not created_at.
+// assumption anywhere in this route, and the list is NEVER filtered by
+// the selected date range (only the `analytics` field per row responds
+// to `period`/`start`/`end` -- see RULE-BUILDER+DATE-FILTERS batch note
+// in lib/supportAnalytics.js resolvePeriodRange). Sorted by message_code
+// (permanent display order), not created_at.
 export async function GET(request) {
   const guard = await requireAdmin();
   if (!guard.account) {
@@ -28,11 +30,16 @@ export async function GET(request) {
   }
   const db = getDb();
   const { searchParams } = new URL(request.url);
-  const period = searchParams.get("period") || "lastweek";
-  const range = resolvePeriodRange(period, {
-    customStart: searchParams.get("start") || undefined,
-    customEnd: searchParams.get("end") || undefined,
-  });
+  const period = searchParams.get("period") || "last7";
+  let range;
+  try {
+    range = resolvePeriodRange(period, {
+      customStart: searchParams.get("start") || undefined,
+      customEnd: searchParams.get("end") || undefined,
+    });
+  } catch (err) {
+    return NextResponse.json({ error: err.message || "Invalid date range." }, { status: 400 });
+  }
 
   const defs = [...listAutomationDefinitions(db)].sort((a, b) => (a.message_code || 0) - (b.message_code || 0));
   const legacyAnalytics = computeAutomatedMessageAnalytics(db, range);
@@ -48,23 +55,27 @@ export async function GET(request) {
       enabled: Boolean(d.enabled),
       messageBody: d.message_body,
       triggerMatchMode: d.trigger_match_mode || "all",
+      ruleTree: d.rule_tree_json ? JSON.parse(d.rule_tree_json) : null,
       conditions: getAutomationConditions(db, d.key),
+      delaySeconds: d.delay_seconds,
       delayHours: d.delay_hours,
       updatedAt: d.updated_at,
       analytics,
     };
   });
 
-  return NextResponse.json({ workflows });
+  return NextResponse.json({ workflows, range: { period, startMs: range.startMs, endMs: range.endMs } });
 }
 
-// POST body: { name, messageBody, triggerMatchMode, conditions, delayHours, enabled }
+// POST body: { name, messageBody, ruleTree, conditions, delayValue, delayUnit, enabled }
 // Creates a NEW admin-authored automation. The internal key AND
 // permanent message_code are always server-generated (see
 // lib/automationDefinitions.js#createAutomationDefinition) -- the client
 // never supplies or chooses either, so neither can ever collide
 // with/overwrite a legacy identity, and two automations may safely
-// share the same display name.
+// share the same display name. `ruleTree` leaves use `conditionIndex`
+// (position within `conditions`) -- the server resolves these to real
+// condition-row ids atomically, never trusting a client-supplied id.
 export async function POST(request) {
   if (!isSameOrigin(request)) {
     return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
@@ -87,8 +98,11 @@ export async function POST(request) {
     {
       name: body.name,
       messageBody: body.messageBody,
+      ruleTree: body.ruleTree,
       triggerMatchMode: body.triggerMatchMode === "any" ? "any" : "all",
       conditions: Array.isArray(body.conditions) ? body.conditions : [],
+      delayValue: body.delayValue,
+      delayUnit: body.delayUnit,
       delayHours: body.delayHours,
       enabled: body.enabled !== false,
     },
@@ -109,7 +123,9 @@ export async function POST(request) {
     enabled: Boolean(def.enabled),
     messageBody: def.message_body,
     triggerMatchMode: def.trigger_match_mode,
+    ruleTree: def.rule_tree_json ? JSON.parse(def.rule_tree_json) : null,
     conditions: getAutomationConditions(db, def.key),
+    delaySeconds: def.delay_seconds,
     delayHours: def.delay_hours,
   });
 }

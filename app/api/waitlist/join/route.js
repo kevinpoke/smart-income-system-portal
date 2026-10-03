@@ -5,6 +5,7 @@ import { isSameOrigin } from "@/lib/csrf";
 import { generateId } from "@/lib/auth-crypto";
 import { computeWaitlistStatus } from "@/lib/waitlistEngine";
 import { scheduleWaitlistSelectionMessage } from "@/lib/supportAutomation";
+import { requestAutomationWake } from "@/lib/automationWake";
 import {
   normalizeState,
   isValidStateCode,
@@ -133,6 +134,17 @@ export async function POST(request) {
 
   const updated = db.prepare(`SELECT * FROM accounts WHERE id = ?`).get(account.id);
   const status = computeWaitlistStatus(updated);
+
+  // SECOND-LEVEL-TIMING batch: a JOIN_WAITLIST-anchored generic automation
+  // (or a DID_NOT_JOIN_WAITLIST state gate on some OTHER automation that
+  // might now need to be suppressed) should react promptly -- see
+  // lib/automationWake.js. Outside the transaction above (after COMMIT),
+  // purely a latency optimization, never required for correctness.
+  try {
+    requestAutomationWake();
+  } catch (err) {
+    console.error("[waitlist/join] automation wake request failed:", err);
+  }
 
   return NextResponse.json({ ok: true, status });
 }

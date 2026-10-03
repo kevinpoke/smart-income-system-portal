@@ -5,6 +5,8 @@ import { useAccount } from "@/lib/useAccount";
 import { formatCurrency, centsToDollars, US_STATES } from "@/lib/mockData";
 import { OTHER_STATE_CODE } from "@/lib/locationNormalize";
 import { useWaitlistStatus } from "@/lib/useWaitlistStatus";
+import { normalizeVturbConfig } from "@/lib/moduleVideo";
+import VturbPlayer from "@/components/ui/VturbPlayer";
 import {
   GlassCard,
   SectionTitle,
@@ -24,6 +26,17 @@ const JOIN_SUCCESS_MESSAGE =
 const JOINED_BANNER_MESSAGE =
   "You have joined the Waitlist! If selected, your dedicated support member will reach out to you with bridge availability.";
 
+// BRIDGES-WAITLIST-VIDEO batch: VTurb SmartPlayer for the waitlist popup,
+// shown between the sold-out placeholder and the Join CTA/form -- reuses
+// the EXACT SAME validated-config + <VturbPlayer> architecture as
+// Training Module videos (lib/moduleVideo.js normalizeVturbConfig(),
+// components/ui/VturbPlayer.js), never a second/divergent video embed
+// path. Hardcoded here (not admin-editable yet) per spec's exact
+// playerId/scriptUrl.
+const WAITLIST_VIDEO_PLAYER_ID = "6abf2bee5d395267d325c86e";
+const WAITLIST_VIDEO_SCRIPT_URL =
+  "https://scripts.converteai.net/83227717-d71e-46bb-8b52-5d76568cd774/players/6abf2bee5d395267d325c86e/v4/player.js";
+
 // PART I (future video support): no video yet -- a clean, swappable
 // placeholder. A future video just replaces this block with a player
 // component; nothing else in this file needs to change.
@@ -32,6 +45,27 @@ function SoldOutPlaceholder() {
     <div className="flex aspect-video flex-col items-center justify-center gap-3 rounded-xl bg-gradient-to-br from-[#1c2a33] to-[#0e1a20] px-6 text-center">
       <ImageOff className="h-12 w-12 text-[#32B5FF]" />
       <h2 className="text-lg font-bold text-white sm:text-xl">{SOLD_OUT_HEADLINE}</h2>
+    </div>
+  );
+}
+
+// BRIDGES-WAITLIST-VIDEO batch: the waitlist VTurb video, rendered
+// between the sold-out placeholder and the Join CTA/form. Reuses the
+// same normalizeVturbConfig() validation gate every other VTurb embed in
+// this app goes through -- an invalid/unsupported config here safely
+// renders nothing (never raw HTML/script injection), same contract as
+// the Training Module video. Renders via the UNMODIFIED, reused
+// <VturbPlayer> component at its own natural aspect-video sizing (same
+// as every other VTurb embed in this app -- VturbPlayer's root element
+// is NOT overridden/wrapped into a different forced aspect ratio, to
+// avoid fighting its own internal `aspect-video` box), simply
+// width-capped to ~400px so it reads well inside the narrower popup card.
+function WaitlistVideo() {
+  const vturb = normalizeVturbConfig(WAITLIST_VIDEO_PLAYER_ID, WAITLIST_VIDEO_SCRIPT_URL);
+  if (!vturb) return null;
+  return (
+    <div className="mx-auto mt-4 w-full max-w-[400px] overflow-hidden rounded-xl">
+      <VturbPlayer playerId={vturb.playerId} scriptUrl={vturb.scriptUrl} title="Waitlist" />
     </div>
   );
 }
@@ -135,6 +169,7 @@ function PreJoinOverlay({ onJoin, joining, error }) {
         className="w-full max-w-xl rounded-2xl border border-[#32B5FF]/30 bg-[#1E1E1E] p-6 shadow-[0_0_60px_rgba(50,181,255,0.25)] sm:p-8"
       >
         <SoldOutPlaceholder />
+        <WaitlistVideo />
         {!showForm ? (
           <button
             onClick={() => setShowForm(true)}

@@ -80,9 +80,11 @@ export async function GET(request) {
 
   const db = getDb();
 
-  const range = resolvePeriodRange(period, { customStart, customEnd });
-  if (!range) {
-    return NextResponse.json({ error: "Invalid period or custom date range." }, { status: 400 });
+  let range;
+  try {
+    range = resolvePeriodRange(period, { customStart, customEnd });
+  } catch (err) {
+    return NextResponse.json({ error: err.message || "Invalid period or custom date range." }, { status: 400 });
   }
   const startIso = new Date(range.startMs).toISOString();
   const endIso = new Date(range.endMs).toISOString();
