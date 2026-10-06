@@ -74,7 +74,7 @@ export async function POST(request, { params }) {
   // idempotency guard above), purely a latency optimization.
   if (!result.alreadyCompleted) {
     try {
-      requestAutomationWake();
+      requestAutomationWake("module_complete");
     } catch (err) {
       console.error("[modules/complete] automation wake request failed:", err);
     }

@@ -132,7 +132,7 @@ export async function POST(request) {
     // purely a latency optimization: never required for correctness (the
     // recurring tick still reconciles everything independently).
     try {
-      requestAutomationWake();
+      requestAutomationWake("login");
     } catch (err) {
       console.error("[auth/login] automation wake request failed:", err);
     }

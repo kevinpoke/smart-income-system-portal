@@ -35,6 +35,23 @@ COPY --from=builder /app/package.json ./package.json
 # baked into the image (see .dockerignore).
 RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data
 
+# PERMANENT FIX (post-outage hardening): the `COPY --from=builder
+# /app/.next ./.next` line above copies that whole tree in with root
+# ownership (root built it, COPY defaults to the ownership of the files
+# being copied, not the current USER -- which hasn't been switched to
+# nextjs yet at that point anyway). Next.js's image-optimization
+# handler (next/image) lazily creates /app/.next/cache/images the FIRST
+# time it needs to cache a resized image, as the RUNTIME user (nextjs,
+# uid 1001) -- which fails with EACCES against a root-owned, mode-755
+# /app/.next/cache directory, since "other" has no write bit. This was
+# a real production incident (EACCES flood on every image request,
+# confirmed via container logs) that had to be hot-patched live with a
+# `docker exec -u 0 chown` before this permanent Dockerfile fix existed.
+# Creating the directory explicitly and chowning the WHOLE .next/cache
+# tree (not just /images) covers every subdirectory Next's cache layer
+# may create there (e.g. its ISR/fetch cache), not only images.
+RUN mkdir -p /app/.next/cache/images && chown -R nextjs:nodejs /app/.next/cache
+
 USER nextjs
 
 EXPOSE 3000

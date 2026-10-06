@@ -81,16 +81,28 @@ export async function GET() {
   // spec's own test matrix step ("customer opens Support conversation ->
   // read_at set" as the point-in-time event, "Admin UI refreshes ->
   // displays Read" as the subsequently-observed effect).
-  markAdminMessagesReadByCustomer(db, conversation.id);
+  const markResult = markAdminMessagesReadByCustomer(db, conversation.id);
 
-  // SECOND-LEVEL-TIMING batch: a MESSAGE_READ-anchored generic automation
-  // with a short delay should react promptly -- see lib/automationWake.js.
-  // Purely a latency optimization; the recurring scheduler tick still
-  // independently reconciles this regardless.
-  try {
-    requestAutomationWake();
-  } catch (err) {
-    console.error("[support/messages] automation wake request failed:", err);
+  // HARDENED SCHEDULER (post-outage redesign, spec Part 2): only poke
+  // the generic AI Sales automation scheduler when customer_read_at
+  // ACTUALLY transitioned NULL -> timestamp on THIS request (i.e. a
+  // MESSAGE_READ-anchored automation might now be newly due sooner).
+  // This route is polled by the open Support page every 4 seconds --
+  // without this guard, every single poll (even when there is nothing
+  // new to read) would call requestAutomationWake(), which is exactly
+  // the kind of unconditional per-poll trigger that caused the prior
+  // outage. requestAutomationWake() itself is now also O(1)/async-only
+  // (see lib/automationWake.js), so this guard is defense-in-depth, not
+  // the only thing preventing a repeat -- but it also means a quiet
+  // Support page produces ZERO wake-scheduler activity at all, not just
+  // zero synchronous work.
+  const { transitionedCount } = markResult;
+  if (transitionedCount > 0) {
+    try {
+      requestAutomationWake("message_read");
+    } catch (err) {
+      console.error("[support/messages] automation wake request failed:", err);
+    }
   }
 
   return NextResponse.json({

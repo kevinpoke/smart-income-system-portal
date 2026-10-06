@@ -16,3 +16,26 @@ services:
       - "127.0.0.1:3000:3000"
     volumes:
       - /opt/smart-income-system/data:/app/data
+    # HARDENED RUNTIME (post-outage, spec Part 10): lightweight liveness
+    # probe against the lightest real route (/login, a static page --
+    # deliberately NOT an admin/DB-heavy endpoint). This is primarily
+    # OBSERVABILITY (docker ps / docker inspect surface "unhealthy"
+    # immediately instead of someone having to notice 502s first) --
+    # it intentionally does NOT trigger any automatic restart on its own;
+    # restart: unless-stopped above only restarts on the container
+    # actually EXITING, never on a failed healthcheck, so a slow-but-not-
+    # dead process is never killed by this probe alone. Uses `node`
+    # directly (no curl/wget in this slim image) with a short per-check
+    # timeout so a hung healthcheck process can never itself pile up.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "const http=require('http');const req=http.get({host:'127.0.0.1',port:3000,path:'/login',timeout:4000},(res)=>{process.exit(res.statusCode<500?0:1)});req.on('error',()=>process.exit(1));req.on('timeout',()=>{req.destroy();process.exit(1)})",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

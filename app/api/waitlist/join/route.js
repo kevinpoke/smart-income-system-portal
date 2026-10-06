@@ -141,7 +141,7 @@ export async function POST(request) {
   // lib/automationWake.js. Outside the transaction above (after COMMIT),
   // purely a latency optimization, never required for correctness.
   try {
-    requestAutomationWake();
+    requestAutomationWake("waitlist_join");
   } catch (err) {
     console.error("[waitlist/join] automation wake request failed:", err);
   }
