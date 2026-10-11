@@ -62,7 +62,10 @@ import { useEffect, useRef } from "react";
 // treat it as a brand-new player every time, with no reliance on any
 // stale global id. The ONE thing that must stay stable across opens is
 // the DOM id itself -- never the script execution.
-export default function VturbPlayer({ playerId, scriptUrl, title }) {
+export default function VturbPlayer({ playerId, scriptUrl, title, poster = null }) {
+  // Optional pre-load poster node (training modules only). Rendered
+  // BEHIND the VTurb element; VTurb's own player paints over it once
+  // mounted. Waitlist passes none.
   const containerRef = useRef(null);
   const scriptRef = useRef(null);
 
@@ -105,7 +108,12 @@ export default function VturbPlayer({ playerId, scriptUrl, title }) {
   if (!playerId || !scriptUrl) return null;
 
   return (
-    <div ref={containerRef} className="aspect-video w-full bg-black">
+    <div ref={containerRef} className={`aspect-video w-full bg-black ${poster ? "relative" : ""}`}>
+      {poster && (
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center overflow-hidden">
+          {poster}
+        </div>
+      )}
       {/* vturb-smartplayer is a real custom element registered by VTurb's player.js, not a typo'd standard tag.
           id MUST stay exactly `vid-${playerId}` -- VTurb's player.js looks up this EXACT id via
           document.getElementById() to attach to. Never randomize this. */}
@@ -120,7 +128,7 @@ export default function VturbPlayer({ playerId, scriptUrl, title }) {
             width: "100%",
             padding: "56.25% 0 0",
             zIndex: 0,
-            backgroundColor: "black",
+            backgroundColor: poster ? "transparent" : "black",
           }}
           title={title}
         />
