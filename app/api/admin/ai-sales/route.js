@@ -46,7 +46,8 @@ export async function GET(request) {
   const analyticsByKey = new Map(legacyAnalytics.map((a) => [a.automationKey, a]));
 
   const workflows = defs.map((d) => {
-    const analytics = analyticsByKey.get(d.key) || null;
+    const analytics =
+      analyticsByKey.get(d.key) || { automationKey: d.key, automationName: d.name, sent: 0, replied: 0, replyRatePct: 0 };
     return {
       key: d.key,
       messageCode: d.message_code,

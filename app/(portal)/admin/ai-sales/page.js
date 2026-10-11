@@ -174,7 +174,7 @@ function ConditionConfig({ condition, onChange, workflows, excludeKey, tags, tag
       </label>
     );
   }
-  if (condition.triggerType === "MESSAGE_READ") {
+  if (condition.triggerType === "MESSAGE_READ" || condition.triggerType === "DID_NOT_REPLY") {
     return (
       <MessageReadSourceSelect
         workflows={workflows}
@@ -603,6 +603,10 @@ function CreateAutomationModal({ workflows, onClose, onCreated }) {
         setError("Select an existing Support Chat tag for every Support Tag condition.");
         return;
       }
+      if (c.triggerType === "DID_NOT_REPLY" && !c.triggerConfig.sourceAutomationKey) {
+        setError("Select a source message for every Did not reply condition.");
+        return;
+      }
       if (c.triggerType === "MESSAGE_READ" && !c.triggerConfig.sourceAutomationKey) {
         setError("Select a source message for every When Message Read condition.");
         return;
@@ -942,7 +946,7 @@ function AiSalesPageInner() {
                       Sent: <span className="font-semibold text-white">{w.analytics.sent}</span>
                     </span>
                     <span>
-                      Replied: <span className="font-semibold text-white">{w.analytics.replied}</span>
+                      Reply: <span className="font-semibold text-white">{w.analytics.replied}</span>
                     </span>
                     <span>
                       Reply Rate: <span className="font-semibold text-[#32B5FF]">{w.analytics.replyRatePct}%</span>
